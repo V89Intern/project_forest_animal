@@ -9,8 +9,11 @@ from typing import Dict, Optional, Union
 import cv2
 import numpy as np
 from pyzbar.pyzbar import decode
-from rembg import remove
+from rembg import remove, new_session
 
+
+# Use isnet-anime model — optimized for drawn/cartoon-style images
+_rembg_session = new_session("isnet-anime")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = str(PROJECT_ROOT / "outputs")
@@ -100,7 +103,7 @@ def find_document_contour(frame: np.ndarray) -> Optional[np.ndarray]:
 def process_frame_to_transparent(frame: np.ndarray, doc_cnt: np.ndarray) -> np.ndarray:
     warped = four_point_transform(frame, doc_cnt.reshape(4, 2))
     warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
-    output_rgba = remove(warped_rgb)
+    output_rgba = remove(warped_rgb, session=_rembg_session)
     return cv2.cvtColor(output_rgba, cv2.COLOR_RGBA2BGRA)
 
 

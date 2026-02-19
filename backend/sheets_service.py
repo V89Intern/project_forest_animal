@@ -59,6 +59,7 @@ def _get_sheet():
         # Ensure header row exists
         existing = _sheet.row_values(1)
         expected_headers = [
+            "UUID",
             "Timestamp",
             "Drawer Name",
             "Creature Name",
@@ -67,8 +68,8 @@ def _get_sheet():
             "Download URL",
         ]
         if existing != expected_headers:
-            _sheet.update("A1:F1", [expected_headers])
-            _sheet.format("A1:F1", {"textFormat": {"bold": True}})
+            _sheet.update("A1:G1", [expected_headers])
+            _sheet.format("A1:G1", {"textFormat": {"bold": True}})
 
         print(f"[sheets_service] Connected to Google Sheet: {spreadsheet.title}")
     except Exception as exc:
@@ -84,6 +85,7 @@ def log_approved_image(
     filename: str,
     image_path: str,
     drawer_name: str = "",
+    entity_uuid: str = "",
     base_url: Optional[str] = None,
 ) -> bool:
     """Append a row to the Google Sheet with the approved image metadata.
@@ -94,6 +96,7 @@ def log_approved_image(
         filename: Final filename in ``static/animations/``.
         drawer_name: Name of the person who drew the animal.
         image_path: Absolute path on disk (not used for sheet, kept for reference).
+        entity_uuid: Unique identifier for this entity.
         base_url: Public base URL override; falls back to ``APP_BASE_URL`` env.
 
     Returns:
@@ -110,7 +113,7 @@ def log_approved_image(
     download_url = f"{base_url}/static/animations/{filename}"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    row = [timestamp, drawer_name, creature_name, creature_type, filename, download_url]
+    row = [entity_uuid, timestamp, drawer_name, creature_name, creature_type, filename, download_url]
 
     try:
         sheet.append_row(row, value_input_option="USER_ENTERED")

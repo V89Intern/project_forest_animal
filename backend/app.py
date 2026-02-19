@@ -7,7 +7,14 @@ import shutil
 import threading
 import time
 import sys
+import uuid
 from typing import Dict, List, Optional
+
+from dotenv import load_dotenv
+
+# Load .env from backend/ directory
+_env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(_env_path)
 
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -265,26 +272,28 @@ def approve():
         return jsonify({"ok": False, "error": "No temp file to approve."}), 404
 
     ANIMATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    entity_uuid = str(uuid.uuid4())
     final_name = f"{creature_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
     final_path = ANIMATIONS_DIR / final_name
     shutil.move(str(RMBG_TEMP_FILE), str(final_path))
 
-    # Log to Google Sheet (non-blocking)
+    # Log to Google Sheet
     try:
         from backend.sheets_service import log_approved_image
-        threading.Thread(
-            target=log_approved_image,
-            kwargs={
-                "creature_name": creature_name,
-                "creature_type": creature_type,
-                "filename": final_name,
-                "image_path": str(final_path),
-                "drawer_name": drawer_name,
-            },
-            daemon=True,
-        ).start()
+        sheet_ok = log_approved_image(
+            creature_name=creature_name,
+            creature_type=creature_type,
+            filename=final_name,
+            image_path=str(final_path),
+            drawer_name=drawer_name,
+            entity_uuid=entity_uuid,
+        )
+        if not sheet_ok:
+            print(f"[WARN] Sheet logging returned False for {final_name}", file=sys.stderr)
     except Exception as exc:
         print(f"[WARN] Sheet logging skipped: {exc}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
 
     update_pipeline("SYNCING", 100, "Approved and syncing creature to forest...")
     entity = {

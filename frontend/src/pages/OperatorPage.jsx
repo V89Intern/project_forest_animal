@@ -110,7 +110,7 @@ export function OperatorPage() {
 
   return (
     <div className="text-slate-100">
-      <div className="mx-auto max-w-7xl p-4 md:p-6">
+      <div className="mx-auto max-w-7xl p-3 sm:p-4 md:p-6">
         <header className="mb-4 rounded-2xl glass p-4 shadow-glow">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -135,13 +135,13 @@ export function OperatorPage() {
               <span className="text-xs text-slate-300">getUserMedia</span>
             </div>
             <div className="relative overflow-hidden rounded-xl border border-slate-500/30 bg-slate-900/70">
-              <video ref={videoRef} className="h-[280px] w-full object-cover" autoPlay playsInline muted />
+              <video ref={videoRef} className="h-[200px] sm:h-[280px] w-full object-cover" autoPlay playsInline muted />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 text-xs text-slate-200">
                 Live feed for operator framing
               </div>
             </div>
-            <div className="mt-3 flex gap-2">
-              <button onClick={captureAndProcess} className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400">
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button onClick={captureAndProcess} className="flex-1 min-w-[120px] rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400">
                 Capture + Process
               </button>
               <button
@@ -149,7 +149,7 @@ export function OperatorPage() {
                   versionRef.current = 0;
                   setActionLog("Manual refresh requested.");
                 }}
-                className="rounded-lg border border-slate-500 px-4 py-2 text-sm hover:bg-slate-700/60"
+                className="flex-1 min-w-[120px] rounded-lg border border-slate-500 px-4 py-2 text-sm hover:bg-slate-700/60"
               >
                 Refresh Status
               </button>
@@ -206,7 +206,7 @@ export function OperatorPage() {
               <img
                 id="previewImg"
                 alt="RMBG Preview"
-                className="h-[300px] w-full object-contain"
+                className="h-[200px] sm:h-[300px] w-full object-contain"
                 src={previewUrl ? `${previewUrl}?t=${Date.now()}` : ""}
               />
             </div>
