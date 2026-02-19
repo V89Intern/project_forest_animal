@@ -1,0 +1,114 @@
+body {
+  margin: 0;
+  overflow: hidden;
+  background-color: #051015;
+  font-family: "Kanit", sans-serif;
+}
+
+#ui-panel {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(78, 204, 163, 0.3);
+  color: #fff;
+  min-width: 260px;
+  box-shadow: 0 0 25px rgba(78, 204, 163, 0.1);
+  user-select: none;
+  z-index: 5;
+}
+
+h1 {
+  margin: 0 0 5px 0;
+  font-size: 1.4rem;
+  color: #4ecca3;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-shadow: 0 0 10px rgba(78, 204, 163, 0.5);
+}
+
+.back-link-wrap {
+  margin-bottom: 10px;
+}
+
+.back-link {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  text-decoration: none;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 0.8rem;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.stat-label {
+  font-size: 0.9rem;
+  color: #aaa;
+}
+
+.count {
+  font-size: 2.2rem;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+#status-bar {
+  margin-top: 15px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.8rem;
+  color: #f1c40f;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pulse {
+  width: 8px;
+  height: 8px;
+  background-color: #f1c40f;
+  border-radius: 50%;
+  animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+#spawn-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  z-index: 50;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(10, 20, 35, 0.45), rgba(0, 0, 0, 0.92));
+}
+
+#spawn-overlay img {
+  max-width: 80vw;
+  max-height: 80vh;
+  object-fit: contain;
+  filter: drop-shadow(0 0 20px rgba(78, 204, 163, 0.7));
+}

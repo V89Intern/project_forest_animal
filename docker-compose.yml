@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: dmf-backend
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FLASK_DEBUG=0
+    volumes:
+      - dmf_outputs:/app/outputs
+      - dmf_static_runtime:/app/static
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: dmf-frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+    restart: unless-stopped
+
+volumes:
+  dmf_outputs:
+  dmf_static_runtime:
