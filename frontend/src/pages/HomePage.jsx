@@ -1,12 +1,21 @@
 import React, { useState } from "react";
+import { useAuth } from "../main.jsx";
 
 export function HomePage() {
+  const { user, logout } = useAuth();
   const [showOperatorModal, setShowOperatorModal] = useState(false);
 
   return (
     <div className="min-h-screen text-slate-100 flex items-center justify-center p-4 sm:p-6 bg-[radial-gradient(circle_at_20%_20%,#14263f_0%,#080d17_45%,#04070d_100%)]">
       <main className="rounded-2xl p-6 sm:p-8 w-full max-w-xl border border-white/20 bg-white/5 backdrop-blur-md">
-        <h1 className="text-2xl sm:text-3xl font-semibold tracking-wide mb-2">Digital Magic Forest</h1>
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-wide">Digital Magic Forest</h1>
+          <div className="user-bar">
+            <span>👤</span>
+            <span className="user-name">{user?.name || ""}</span>
+            <button className="logout-btn" onClick={logout}>ออก</button>
+          </div>
+        </div>
         <p className="text-slate-300 mb-6 text-sm sm:text-base">Choose a workspace to continue.</p>
 
         <div className="grid grid-cols-1 gap-4">

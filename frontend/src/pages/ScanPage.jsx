@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ForestAPI } from "../lib/api.js";
+import { useAuth } from "../main.jsx";
 
 const POLL_INTERVAL = 800;
 
@@ -8,6 +9,7 @@ const POLL_INTERVAL = 800;
  * Uses rear camera (getUserMedia) OR file input fallback (for HTTP).
  */
 export function ScanPage() {
+  const { user, logout } = useAuth();
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -20,7 +22,7 @@ export function ScanPage() {
   const [capturedImage, setCapturedImage] = useState(null);
 
   // form fields
-  const [drawerName, setDrawerName] = useState("");
+  const [drawerName, setDrawerName] = useState(user?.name || "");
   const [creatureName, setCreatureName] = useState("");
   const [creatureType, setCreatureType] = useState("ground");
 
@@ -203,7 +205,14 @@ export function ScanPage() {
   /* ── Render ─────────────────────────────────────── */
   return (
     <div className="scan-page">
-      <a href="/" className="scan-back-link">← กลับ</a>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 0.5rem" }}>
+        <a href="/" className="scan-back-link">← กลับ</a>
+        <div className="user-bar">
+          <span>👤</span>
+          <span className="user-name">{user?.name || ""}</span>
+          <button className="logout-btn" onClick={logout}>ออก</button>
+        </div>
+      </div>
 
       {/* Hidden file input for fallback mode */}
       <input

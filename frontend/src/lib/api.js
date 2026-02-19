@@ -20,6 +20,14 @@ async function request(path, options) {
 }
 
 export const ForestAPI = {
+  login(pin) {
+    return request("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin })
+    });
+  },
+
   getLatestAnimals() {
     return request("/api/latest_animals", { cache: "no-store" });
   },

@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import { ForestAPI } from "../lib/api.js";
+import { useAuth } from "../main.jsx";
 
 export function OperatorPage() {
+  const { user, logout } = useAuth();
   const videoRef = useRef(null);
   const versionRef = useRef(0);
   const [pipelineState, setPipelineState] = useState("IDLE");
@@ -13,7 +15,7 @@ export function OperatorPage() {
   const [activeEntities, setActiveEntities] = useState(0);
   const [actionLog, setActionLog] = useState("Awaiting operator action.");
   const [name, setName] = useState("");
-  const [drawerName, setDrawerName] = useState("");
+  const [drawerName, setDrawerName] = useState(user?.name || "");
   const [type, setType] = useState("ground");
 
   const stateOrder = ["IDLE", "CAPTURING", "PROCESSING", "READY_FOR_REVIEW", "SYNCING"];
@@ -118,6 +120,11 @@ export function OperatorPage() {
               <p className="text-sm text-slate-300">Dark-Tech Control SPA | Real-time Pipeline Monitoring</p>
             </div>
             <div className="flex items-center gap-2">
+              <div className="user-bar">
+                <span>👤</span>
+                <span className="user-name">{user?.name || ""}</span>
+                <button className="logout-btn" onClick={logout}>ออกจากระบบ</button>
+              </div>
               <a href="/" className="rounded-lg border border-slate-400/40 bg-slate-900/50 px-3 py-2 text-xs hover:bg-slate-700/60">
                 Back
               </a>

@@ -237,6 +237,28 @@ def capture_process():
     return jsonify({"ok": True, "message": "Capture and process started."})
 
 
+@app.post("/api/login")
+def login():
+    """Verify a 6-digit PIN against Sheet2 and return the user name."""
+    data = request.get_json(silent=True) or {}
+    pin = str(data.get("pin", "")).strip()
+
+    if not pin or len(pin) != 6 or not pin.isdigit():
+        return jsonify({"ok": False, "error": "PIN ต้องเป็นตัวเลข 6 หลัก"}), 400
+
+    try:
+        from backend.sheets_service import verify_pin
+        result = verify_pin(pin)
+    except Exception as exc:
+        print(f"[login] PIN verification error: {exc}", file=sys.stderr)
+        return jsonify({"ok": False, "error": "ระบบตรวจสอบ PIN ขัดข้อง"}), 500
+
+    if result is None:
+        return jsonify({"ok": False, "error": "PIN ไม่ถูกต้อง"}), 401
+
+    return jsonify({"ok": True, "name": result["name"], "pin": result["pin"]})
+
+
 @app.post("/api/spawn")
 def spawn():
     data = request.get_json(silent=True) or {}

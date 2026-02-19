@@ -18,13 +18,16 @@ from typing import Optional
 
 _client = None
 _sheet = None
+_spreadsheet = None
+_pin_sheet = None
 
 
-def _get_sheet():
-    """Lazy-initialise the gspread client and return the first worksheet."""
-    global _client, _sheet
-    if _sheet is not None:
-        return _sheet
+def _get_spreadsheet():
+    """Lazy-initialise the gspread client and return the spreadsheet object."""
+    global _client, _spreadsheet
+
+    if _spreadsheet is not None:
+        return _spreadsheet
 
     try:
         import gspread
@@ -53,7 +56,26 @@ def _get_sheet():
         ]
         credentials = Credentials.from_service_account_file(creds_path, scopes=scopes)
         _client = gspread.authorize(credentials)
-        spreadsheet = _client.open_by_key(sheet_id)
+        _spreadsheet = _client.open_by_key(sheet_id)
+        print(f"[sheets_service] Connected to Google Sheet: {_spreadsheet.title}")
+    except Exception as exc:
+        print(f"[sheets_service] Failed to init Google Sheets: {exc}", file=sys.stderr)
+        _spreadsheet = None
+
+    return _spreadsheet
+
+
+def _get_sheet():
+    """Lazy-initialise and return the first worksheet (data sheet)."""
+    global _sheet
+    if _sheet is not None:
+        return _sheet
+
+    spreadsheet = _get_spreadsheet()
+    if spreadsheet is None:
+        return None
+
+    try:
         _sheet = spreadsheet.sheet1
 
         # Ensure header row exists
@@ -70,13 +92,69 @@ def _get_sheet():
         if existing != expected_headers:
             _sheet.update("A1:G1", [expected_headers])
             _sheet.format("A1:G1", {"textFormat": {"bold": True}})
-
-        print(f"[sheets_service] Connected to Google Sheet: {spreadsheet.title}")
     except Exception as exc:
-        print(f"[sheets_service] Failed to init Google Sheets: {exc}", file=sys.stderr)
+        print(f"[sheets_service] Failed to init Sheet1: {exc}", file=sys.stderr)
         _sheet = None
 
     return _sheet
+
+
+def _get_pin_sheet():
+    """Lazy-initialise and return Sheet2 (PIN login sheet).
+
+    Sheet2 layout (row 1 = header):
+        A: PIN (6-digit string)
+        B: Name
+    """
+    global _pin_sheet
+    if _pin_sheet is not None:
+        return _pin_sheet
+
+    spreadsheet = _get_spreadsheet()
+    if spreadsheet is None:
+        return None
+
+    try:
+        worksheets = spreadsheet.worksheets()
+        if len(worksheets) < 2:
+            # Auto-create Sheet2 with headers
+            _pin_sheet = spreadsheet.add_worksheet(title="PINs", rows=100, cols=2)
+            _pin_sheet.update("A1:B1", [["PIN", "Name"]])
+            _pin_sheet.format("A1:B1", {"textFormat": {"bold": True}})
+            print("[sheets_service] Created Sheet2 (PINs) with headers.")
+        else:
+            _pin_sheet = worksheets[1]
+            existing = _pin_sheet.row_values(1)
+            if existing != ["PIN", "Name"]:
+                _pin_sheet.update("A1:B1", [["PIN", "Name"]])
+                _pin_sheet.format("A1:B1", {"textFormat": {"bold": True}})
+        print(f"[sheets_service] PIN sheet ready: {_pin_sheet.title}")
+    except Exception as exc:
+        print(f"[sheets_service] Failed to init PIN sheet: {exc}", file=sys.stderr)
+        _pin_sheet = None
+
+    return _pin_sheet
+
+
+def verify_pin(pin: str) -> Optional[dict]:
+    """Check a 6-digit PIN against Sheet2.
+
+    Returns:
+        ``{"pin": "...", "name": "..."}`` on success, ``None`` if not found.
+    """
+    sheet = _get_pin_sheet()
+    if sheet is None:
+        return None
+
+    try:
+        all_rows = sheet.get_all_values()  # includes header
+        for row in all_rows[1:]:  # skip header
+            if len(row) >= 2 and str(row[0]).strip() == str(pin).strip():
+                return {"pin": row[0].strip(), "name": row[1].strip()}
+    except Exception as exc:
+        print(f"[sheets_service] PIN lookup failed: {exc}", file=sys.stderr)
+
+    return None
 
 
 def log_approved_image(
