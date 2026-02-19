@@ -157,6 +157,48 @@ def verify_pin(pin: str) -> Optional[dict]:
     return None
 
 
+def search_entries(drawer_name: str = "", creature_type: str = "") -> list:
+    """Search Sheet1 entries, optionally filtered by drawer_name and/or creature_type.
+
+    Returns a list of dicts with keys:
+        uuid, timestamp, drawer_name, creature_name, creature_type, filename, download_url
+    """
+    sheet = _get_sheet()
+    if sheet is None:
+        return []
+
+    try:
+        all_rows = sheet.get_all_values()  # includes header
+        if len(all_rows) <= 1:
+            return []
+
+        results = []
+        for row in all_rows[1:]:
+            if len(row) < 7:
+                continue
+            entry = {
+                "uuid": row[0],
+                "timestamp": row[1],
+                "drawer_name": row[2],
+                "creature_name": row[3],
+                "creature_type": row[4],
+                "filename": row[5],
+                "download_url": row[6],
+            }
+            # Filter by drawer_name (case-insensitive partial match)
+            if drawer_name and drawer_name.lower() not in entry["drawer_name"].lower():
+                continue
+            # Filter by creature_type (exact match)
+            if creature_type and entry["creature_type"].lower() != creature_type.lower():
+                continue
+            results.append(entry)
+
+        return results
+    except Exception as exc:
+        print(f"[sheets_service] search_entries failed: {exc}", file=sys.stderr)
+        return []
+
+
 def log_approved_image(
     creature_name: str,
     creature_type: str,

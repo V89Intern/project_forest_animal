@@ -391,6 +391,31 @@ def serve_rmbg(filename: str):
     return send_from_directory(RMBG_DIR, filename)
 
 
+@app.get("/api/gallery")
+def gallery():
+    """Search approved images by drawer_name and/or creature_type."""
+    drawer_name = request.args.get("drawer_name", "").strip()
+    creature_type = request.args.get("type", "").strip()
+
+    try:
+        from backend.sheets_service import search_entries
+        entries = search_entries(drawer_name=drawer_name, creature_type=creature_type)
+    except Exception as exc:
+        print(f"[gallery] search error: {exc}", file=sys.stderr)
+        entries = []
+
+    return jsonify({"ok": True, "count": len(entries), "entries": entries})
+
+
+@app.get("/api/download/<path:filename>")
+def download_animation(filename: str):
+    """Download an animation image as an attachment."""
+    file_path = ANIMATIONS_DIR / filename
+    if not file_path.exists() or not file_path.is_file():
+        abort(404)
+    return send_from_directory(ANIMATIONS_DIR, filename, as_attachment=True)
+
+
 if __name__ == "__main__":
     ensure_python_310()
     app.run(host="0.0.0.0", port=5000, debug=os.getenv("FLASK_DEBUG", "0") == "1")

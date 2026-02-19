@@ -76,5 +76,16 @@ export const ForestAPI = {
 
   previewUrl() {
     return withBase("/static/rmbg_temp.png");
+  },
+
+  searchGallery({ drawer_name = "", type = "" } = {}) {
+    const params = new URLSearchParams();
+    if (drawer_name) params.set("drawer_name", drawer_name);
+    if (type) params.set("type", type);
+    return request(`/api/gallery?${params.toString()}`, { cache: "no-store" });
+  },
+
+  downloadUrl(filename) {
+    return withBase(`/api/download/${filename}`);
   }
 };
