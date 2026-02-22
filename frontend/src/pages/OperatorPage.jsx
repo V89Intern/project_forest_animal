@@ -1,275 +1,437 @@
-import React, { useEffect, useRef, useState } from "react";
-
+import React, { useEffect, useState, useCallback } from "react";
 import { ForestAPI } from "../lib/api.js";
 import { useAuth } from "../main.jsx";
 
+// ─── API helper ───────────────────────────────────────────────────────────────
+function authHeader() {
+  try {
+    const u = JSON.parse(sessionStorage.getItem("forest_user") || "{}");
+    return u.token ? { Authorization: `Bearer ${u.token}` } : {};
+  } catch { return {}; }
+}
+
+async function apiFetch(path, opts = {}) {
+  const base = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
+  const res = await fetch(`${base}${path}`, {
+    ...opts,
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeader(),
+      ...(opts.headers || {})
+    }
+  });
+  let data = {};
+  try { data = await res.json(); } catch (_) { }
+  return { ok: res.ok, status: res.status, data };
+}
+
+// ─── Mini bar chart ───────────────────────────────────────────────────────────
+function BarChart({ data, label }) {
+  const max = Math.max(...data.map((d) => d.value), 1);
+  return (
+    <div className="db-chart">
+      <div className="db-chart__bars">
+        {data.map((d) => (
+          <div key={d.key} className="db-chart__col">
+            <div className="db-chart__bar" style={{ height: `${(d.value / max) * 100}%` }} title={`${d.key}: ${d.value}`} />
+            <div className="db-chart__xlabel">{d.key}</div>
+          </div>
+        ))}
+      </div>
+      <div className="db-chart__label">{label}</div>
+    </div>
+  );
+}
+
+// ─── Stat card ────────────────────────────────────────────────────────────────
+function StatCard({ icon, value, label, color = "cyan" }) {
+  return (
+    <div className={`db-stat db-stat--${color}`}>
+      <div className="db-stat__icon">{icon}</div>
+      <div className="db-stat__body">
+        <div className="db-stat__value">{value}</div>
+        <div className="db-stat__label">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Card wrapper ─────────────────────────────────────────────────────────────
+function Card({ title, children, className = "" }) {
+  return (
+    <div className={`db-card ${className}`}>
+      {title && <div className="db-card__title">{title}</div>}
+      {children}
+    </div>
+  );
+}
+
+// ─── Picture table ────────────────────────────────────────────────────────────
+function PictureTable({ rows = [], showAll = false }) {
+  if (rows.length === 0) return <div className="db-empty">ยังไม่มีข้อมูล</div>;
+  return (
+    <div className="db-table-wrap">
+      <table className="db-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>เบอร์โทร</th>
+            <th>ชื่อเจ้าของ</th>
+            <th>ประเภท</th>
+            <th>วันที่อัปโหลด</th>
+            {showAll && <th>URL</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => (
+            <tr key={p.pe_id}>
+              <td className="db-table__id">{p.pe_id}</td>
+              <td>{p.phone_number || "—"}</td>
+              <td>{p.owner_name || "—"}</td>
+              <td>
+                <span className={`db-badge db-badge--${(p.uploader_type || "").toLowerCase()}`}>
+                  {p.uploader_type || "—"}
+                </span>
+              </td>
+              <td className="db-table__date">
+                {p.upload_timestamp ? new Date(p.upload_timestamp).toLocaleString("th-TH") : "—"}
+              </td>
+              {showAll && (
+                <td>
+                  <a href={p.url_path} target="_blank" rel="noreferrer" className="db-link">View</a>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
 export function OperatorPage() {
   const { user, logout } = useAuth();
-  const videoRef = useRef(null);
-  const versionRef = useRef(0);
-  const [pipelineState, setPipelineState] = useState("IDLE");
-  const [progress, setProgress] = useState(0);
-  const [message, setMessage] = useState("Ready");
-  const [previewUrl, setPreviewUrl] = useState("");
-  const [detectedType, setDetectedType] = useState("");
-  const [activeEntities, setActiveEntities] = useState(0);
-  const [actionLog, setActionLog] = useState("Awaiting operator action.");
-  const [name, setName] = useState("");
-  const [drawerName, setDrawerName] = useState(user?.name || "");
-  const [type, setType] = useState("ground");
 
-  const stateOrder = ["IDLE", "CAPTURING", "PROCESSING", "READY_FOR_REVIEW", "SYNCING"];
+  const [pictures, setPictures] = useState([]);
+  const [animals, setAnimals] = useState([]);
+  const [pipeline, setPipeline] = useState({ state: "IDLE", active_entities: 0, message: "" });
+  const [loading, setLoading] = useState(true);
+  const [searchPhone, setSearchPhone] = useState("");
+  const [searchOwner, setSearchOwner] = useState("");
+  const [filterType, setFilterType] = useState("all");
+  const [activeTab, setActiveTab] = useState("overview");
+  const [selectedAnimals, setSelectedAnimals] = useState(new Set());
+  const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    async function initCamera() {
-      if (!videoRef.current) return;
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        videoRef.current.srcObject = stream;
-      } catch (_err) {
-        setActionLog("Camera permission denied or unavailable.");
-      }
-    }
-    initCamera();
+  // ── Fetch all data ────────────────────────────────────────────────────────
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    const [picRes, animalRes, pipeRes] = await Promise.all([
+      apiFetch("/api/pictures"),
+      ForestAPI.getLatestAnimals(),
+      ForestAPI.getPipelineStatus({ wait: false })
+    ]);
+    if (picRes.ok && Array.isArray(picRes.data?.pictures)) setPictures(picRes.data.pictures);
+    if (animalRes.ok && Array.isArray(animalRes.data?.items)) setAnimals(animalRes.data.items);
+    if (pipeRes.ok) setPipeline(pipeRes.data || {});
+    setSelectedAnimals(new Set());
+    setLoading(false);
   }, []);
 
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // ── Live pipeline refresh every 5 s ──────────────────────────────────────
   useEffect(() => {
-    let alive = true;
-    async function loop() {
-      try {
-        const resp = await ForestAPI.getPipelineStatus({ wait: true, timeout: 20, since: versionRef.current });
-        if (!alive || !resp.ok) throw new Error("status");
-        const data = resp.data || {};
-        setPipelineState(data.state || "IDLE");
-        setProgress(Number(data.progress || 0));
-        setMessage(data.message || "Ready");
-        const basePreview = data.preview_url ? ForestAPI.assetUrl(data.preview_url) : ForestAPI.previewUrl();
-        setPreviewUrl(basePreview);
-        setDetectedType((data.detected_type || "").toLowerCase());
-        setActiveEntities(Number(data.active_entities || 0));
-        versionRef.current = Number(data.version || versionRef.current || 0);
-      } catch (_err) {
-        if (alive) setActionLog("Status sync failed.");
-      }
-      if (alive) setTimeout(loop, 150);
-    }
-    loop();
-    return () => {
-      alive = false;
-    };
+    const id = setInterval(async () => {
+      const r = await ForestAPI.getPipelineStatus({ wait: false });
+      if (r.ok) setPipeline(r.data || {});
+    }, 5000);
+    return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    if (detectedType && ["sky", "ground", "water"].includes(detectedType)) {
-      setType(detectedType);
-    }
-  }, [detectedType]);
+  // ── Derived stats ─────────────────────────────────────────────────────────
+  const totalPics = pictures.length;
+  const uniquePhones = new Set(pictures.map((p) => p.phone_number).filter(Boolean)).size;
+  const todayPics = pictures.filter((p) => {
+    const d = new Date(p.upload_timestamp);
+    return d.toDateString() === new Date().toDateString();
+  }).length;
+  const activeCreatures = pipeline.active_entities ?? 0;
+  const custCount = pictures.filter((p) => p.uploader_type === "CUSTOMER").length;
+  const userCount = pictures.filter((p) => p.uploader_type === "USER").length;
 
-  async function captureAndProcess() {
-    const video = videoRef.current;
-    setActionLog("Triggering capture and RMBG pipeline...");
-    if (!video || !video.videoWidth || !video.videoHeight) {
-      setActionLog("Camera frame not ready.");
-      return;
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageData = canvas.toDataURL("image/jpeg", 0.92);
-
-    const resp = await ForestAPI.captureProcess({ image_data: imageData });
-    if (!resp.ok) {
-      setActionLog(resp.data?.error || "Capture request failed.");
-      return;
-    }
-    setActionLog("Capture pipeline started.");
+  // Weekly bar (last 7 days)
+  const weekBars = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return { key: d.toLocaleDateString("th-TH", { weekday: "short" }), date: d.toDateString(), value: 0 };
+  });
+  for (const p of pictures) {
+    const ds = new Date(p.upload_timestamp).toDateString();
+    const slot = weekBars.find((b) => b.date === ds);
+    if (slot) slot.value++;
   }
 
-  async function approveAndSpawn(event) {
-    event.preventDefault();
-    const resp = await ForestAPI.approve({ type, name, drawer_name: drawerName });
-    if (!resp.ok) {
-      setActionLog(resp.data?.error || "Approve failed.");
-      return;
-    }
-    setActionLog(`Approved: ${resp.data?.filename || "unknown file"}`);
-    setName("");
-    setDrawerName("");
-  }
+  // Filtered lists
+  const filteredPics = pictures.filter((p) => {
+    const phoneOk = !searchPhone || (p.phone_number || "").includes(searchPhone);
+    const ownerOk = !searchOwner || (p.owner_name || "").toLowerCase().includes(searchOwner.toLowerCase());
+    return phoneOk && ownerOk;
+  });
+  const filteredAnimals = animals.filter((a) => filterType === "all" || a.type === filterType);
 
-  async function clearForest() {
-    const resp = await ForestAPI.clearForest();
-    if (!resp.ok) {
-      setActionLog("Clear forest failed.");
-      return;
-    }
-    const removed = resp.data?.removed || 0;
-    setActionLog(`Forest cleared (${removed} files).`);
-  }
+  // ── Delete helpers ────────────────────────────────────────────────────────
+  const toggleSelect = useCallback((fn) => {
+    setSelectedAnimals((prev) => {
+      const next = new Set(prev);
+      next.has(fn) ? next.delete(fn) : next.add(fn);
+      return next;
+    });
+  }, []);
 
+  const toggleSelectAll = () => {
+    setSelectedAnimals((prev) =>
+      prev.size === filteredAnimals.length && filteredAnimals.length > 0
+        ? new Set()
+        : new Set(filteredAnimals.map((a) => a.filename))
+    );
+  };
+
+  const deleteSelected = async () => {
+    if (selectedAnimals.size === 0) return;
+    if (!window.confirm(`ลบ ${selectedAnimals.size} รายการที่เลือก?`)) return;
+    setDeleting(true);
+    await apiFetch("/api/animals/delete_many", {
+      method: "POST",
+      body: JSON.stringify({ filenames: Array.from(selectedAnimals) })
+    });
+    setDeleting(false);
+    fetchAll();
+  };
+
+  const deleteAll = async () => {
+    if (!window.confirm("ลบสัตว์ทั้งหมดในป่า? ไม่สามารถกู้คืนได้")) return;
+    setDeleting(true);
+    await apiFetch("/api/clear_forest", { method: "POST", body: JSON.stringify({}) });
+    setDeleting(false);
+    fetchAll();
+  };
+
+  const deleteOne = async (filename) => {
+    if (!window.confirm(`ลบ ${filename}?`)) return;
+    setDeleting(true);
+    await apiFetch(`/api/animals/${encodeURIComponent(filename)}`, { method: "DELETE", body: JSON.stringify({}) });
+    setDeleting(false);
+    fetchAll();
+  };
+
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="text-slate-100">
-      <div className="mx-auto max-w-7xl p-3 sm:p-4 md:p-6">
-        <header className="mb-4 rounded-2xl glass p-4 shadow-glow">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl md:text-2xl font-semibold tracking-wide">Digital Magic Forest Operator Dashboard</h1>
-              <p className="text-sm text-slate-300">Dark-Tech Control SPA | Real-time Pipeline Monitoring</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="user-bar">
-                <span>👤</span>
-                <span className="user-name">{user?.name || ""}</span>
-                <button className="logout-btn" onClick={logout}>ออกจากระบบ</button>
-              </div>
-              <a href="/" className="rounded-lg border border-slate-400/40 bg-slate-900/50 px-3 py-2 text-xs hover:bg-slate-700/60">
-                Back
-              </a>
-              <div id="stateBadge" className="rounded-full border border-cyan-300/60 bg-cyan-400/10 px-3 py-1 text-xs font-semibold text-cyan-200">
-                {`STATE: ${pipelineState}`}
-              </div>
-            </div>
+    <div className="db-root">
+
+      {/* ── Header ── */}
+      <header className="db-header">
+        <div className="db-header__left">
+          <div className="db-logo">🌳</div>
+          <div>
+            <div className="db-header__title">Report &amp; Dashboard</div>
+            <div className="db-header__sub">Magic Forest · Back-office</div>
           </div>
-        </header>
+        </div>
+        <div className="db-header__right">
+          <div className="db-header__user">👤 {user?.name || "—"}</div>
+          <button className="db-btn db-btn--ghost" onClick={fetchAll}>⟳ Refresh</button>
+          <a href="/scan" className="db-btn db-btn--cyan">Scanner →</a>
+          <a href="/" className="db-btn db-btn--ghost">Home</a>
+          <button className="db-btn db-btn--danger" onClick={logout}>ออกจากระบบ</button>
+        </div>
+      </header>
 
-        <main className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <section className="glass rounded-2xl p-4 lg:col-span-5">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Scanner Viewport</h2>
-              <span className="text-xs text-slate-300">getUserMedia</span>
+      {/* ── Tabs ── */}
+      <nav className="db-tabs">
+        {[
+          { id: "overview", label: "📊 Overview" },
+          { id: "gallery", label: "🖼️ Picture Gallery" },
+          { id: "animals", label: "🦁 Forest Animals" }
+        ].map((t) => (
+          <button
+            key={t.id}
+            className={`db-tab ${activeTab === t.id ? "db-tab--active" : ""}`}
+            onClick={() => setActiveTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* ── Main ── */}
+      <main className="db-main">
+        {loading && <div className="db-loading">กำลังโหลดข้อมูล…</div>}
+
+        {/* ════════ OVERVIEW ════════ */}
+        {activeTab === "overview" && !loading && (
+          <>
+            {/* Stat cards */}
+            <div className="db-stats-row">
+              <StatCard icon="🖼️" value={totalPics} label="Total Pictures" color="cyan" />
+              <StatCard icon="📅" value={todayPics} label="Uploaded Today" color="emerald" />
+              <StatCard icon="📱" value={uniquePhones} label="Unique Phone Numbers" color="violet" />
+              <StatCard icon="🦊" value={activeCreatures} label="Live Creatures in Forest" color="amber" />
             </div>
-            <div className="relative overflow-hidden rounded-xl border border-slate-500/30 bg-slate-900/70">
-              <video ref={videoRef} className="h-[200px] sm:h-[280px] w-full object-cover" autoPlay playsInline muted />
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 text-xs text-slate-200">
-                Live feed for operator framing
+
+            {/* Charts */}
+            <div className="db-grid-2">
+              <Card title="📈 Uploads — Last 7 Days">
+                <BarChart data={weekBars} label="รูปภาพที่อัปโหลดต่อวัน" />
+              </Card>
+
+              <Card title="👥 Uploader Type">
+                <div className="db-donut-wrap">
+                  <div className="db-donut-item">
+                    <div
+                      className="db-donut-circle"
+                      style={{
+                        background: `conic-gradient(#4ecca3 0% ${totalPics ? (custCount / totalPics * 100) : 0}%, #7c9fff ${totalPics ? (custCount / totalPics * 100) : 0}% 100%)`
+                      }}
+                    />
+                    <div className="db-donut-legend">
+                      <div><span className="db-dot db-dot--cyan" />Customer: <b>{custCount}</b></div>
+                      <div><span className="db-dot db-dot--violet" />User: <b>{userCount}</b></div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Pipeline status */}
+            <Card title="⚙️ Pipeline Status" className="db-card--full">
+              <div className="db-pipeline-row">
+                {["IDLE", "CAPTURING", "PROCESSING", "READY_FOR_REVIEW", "SYNCING"].map((s) => (
+                  <div key={s} className={`db-pipeline-step ${pipeline.state === s ? "db-pipeline-step--active" : ""}`}>
+                    {s}
+                  </div>
+                ))}
+                <div className="db-pipeline-msg">{pipeline.message || "—"}</div>
               </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button onClick={captureAndProcess} className="flex-1 min-w-[120px] rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-cyan-400">
-                Capture + Process
-              </button>
-              <button
-                onClick={() => {
-                  versionRef.current = 0;
-                  setActionLog("Manual refresh requested.");
-                }}
-                className="flex-1 min-w-[120px] rounded-lg border border-slate-500 px-4 py-2 text-sm hover:bg-slate-700/60"
-              >
-                Refresh Status
-              </button>
-            </div>
-          </section>
+            </Card>
 
-          <section className="glass rounded-2xl p-4 lg:col-span-4">
-            <h2 className="mb-3 text-lg font-semibold">Processing Pipeline</h2>
-            <div className="mb-3 h-2 w-full overflow-hidden rounded-full bg-slate-800">
-              <div
-                id="progressBar"
-                className="h-2 rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all"
-                style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
-              />
-            </div>
-            <p id="statusText" className="mb-4 text-sm text-slate-300">
-              {message}
-            </p>
+            {/* Recent uploads */}
+            <Card title="🕐 Recent Uploads" className="db-card--full">
+              <PictureTable rows={pictures.slice(0, 10)} />
+            </Card>
+          </>
+        )}
 
-            <div className="relative ml-6 space-y-3 border-l border-slate-600/70 pl-5 text-sm">
-              {stateOrder.map((step) => {
-                const stepIndex = stateOrder.indexOf(step);
-                const currentIndex = stateOrder.indexOf(pipelineState);
-                const active = stepIndex === currentIndex;
-                const done = stepIndex < currentIndex;
-                const label = step === "PROCESSING" ? "PROCESSING (RMBG)" : step;
+        {/* ════════ GALLERY ════════ */}
+        {activeTab === "gallery" && !loading && (
+          <>
+            <Card title="🔍 Search &amp; Filter" className="db-card--full">
+              <div className="db-filter-row">
+                <input
+                  className="db-input"
+                  placeholder="กรองตามเบอร์โทร"
+                  value={searchPhone}
+                  onChange={(e) => setSearchPhone(e.target.value)}
+                />
+                <input
+                  className="db-input"
+                  placeholder="กรองตามชื่อเจ้าของ"
+                  value={searchOwner}
+                  onChange={(e) => setSearchOwner(e.target.value)}
+                />
+                <button className="db-btn db-btn--ghost" onClick={() => { setSearchPhone(""); setSearchOwner(""); }}>
+                  Clear
+                </button>
+                <span className="db-filter-count">{filteredPics.length} รายการ</span>
+              </div>
+            </Card>
+
+            <Card title="🖼️ Picture Records" className="db-card--full">
+              <PictureTable rows={filteredPics} showAll />
+            </Card>
+          </>
+        )}
+
+        {/* ════════ ANIMALS ════════ */}
+        {activeTab === "animals" && !loading && (
+          <>
+            <Card title="🎛️ Filter &amp; Actions" className="db-card--full">
+              <div className="db-filter-row">
+                {["all", "sky", "ground", "water"].map((t) => (
+                  <button
+                    key={t}
+                    className={`db-btn ${filterType === t ? "db-btn--cyan" : "db-btn--ghost"}`}
+                    onClick={() => setFilterType(t)}
+                  >
+                    {t === "all" ? "All" : t.charAt(0).toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+
+                <span className="db-filter-count">{filteredAnimals.length} ตัวสัตว์</span>
+                <span style={{ flex: 1 }} />
+
+                <button className="db-btn db-btn--ghost" onClick={toggleSelectAll}>
+                  {selectedAnimals.size === filteredAnimals.length && filteredAnimals.length > 0
+                    ? "☑ Deselect All"
+                    : "☐ Select All"}
+                </button>
+
+                <button
+                  className="db-btn db-btn--danger"
+                  disabled={selectedAnimals.size === 0 || deleting}
+                  onClick={deleteSelected}
+                >
+                  🗑 ลบที่เลือก ({selectedAnimals.size})
+                </button>
+
+                <button
+                  className="db-btn db-btn--danger-hard"
+                  disabled={animals.length === 0 || deleting}
+                  onClick={deleteAll}
+                >
+                  💥 ลบทั้งหมด
+                </button>
+              </div>
+            </Card>
+
+            <div className="db-animal-grid">
+              {filteredAnimals.map((a) => {
+                const isSelected = selectedAnimals.has(a.filename);
                 return (
-                  <div key={step} id={`step-${step}`} className={`step relative${active ? " active" : ""}${done ? " done" : ""}`}>
-                    {label}
+                  <div
+                    key={a.filename}
+                    className={`db-animal-card ${isSelected ? "db-animal-card--selected" : ""}`}
+                    onClick={() => toggleSelect(a.filename)}
+                  >
+                    <div className="db-animal-check">{isSelected ? "✅" : "⬜"}</div>
+                    <img
+                      src={ForestAPI.assetUrl(a.url)}
+                      alt={a.filename}
+                      className="db-animal-img"
+                      loading="lazy"
+                    />
+                    <div className="db-animal-meta">
+                      <div className="db-animal-name">{a.filename}</div>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <span className={`db-badge db-badge--${a.type}`}>{a.type}</span>
+                        <button
+                          className="db-btn-icon"
+                          title="ลบสัตว์นี้"
+                          onClick={(e) => { e.stopPropagation(); deleteOne(a.filename); }}
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
+              {filteredAnimals.length === 0 && <div className="db-empty">ไม่มีสัตว์ในตาราง</div>}
             </div>
-          </section>
-
-          <section className="glass rounded-2xl p-4 lg:col-span-3">
-            <h2 className="mb-3 text-lg font-semibold">System Controls</h2>
-            <div className="space-y-3 text-sm">
-              <div className="rounded-lg border border-slate-500/40 bg-slate-900/50 p-3">
-                <div className="text-slate-300">Active Entities</div>
-                <div id="activeCount" className="text-2xl font-semibold text-emerald-300">
-                  {String(activeEntities)}
-                </div>
-              </div>
-              <button onClick={clearForest} id="clearBtn" className="w-full rounded-lg bg-rose-600 px-4 py-2 font-semibold hover:bg-rose-500">
-                Clear Forest
-              </button>
-            </div>
-          </section>
-
-          <section className="glass rounded-2xl p-4 lg:col-span-7">
-            <h2 className="mb-3 text-lg font-semibold">High-Resolution Preview</h2>
-            <div className="overflow-hidden rounded-xl border border-slate-500/30 bg-slate-900/60">
-              <img
-                id="previewImg"
-                alt="RMBG Preview"
-                className="h-[200px] sm:h-[300px] w-full object-contain"
-                src={previewUrl ? `${previewUrl}?t=${Date.now()}` : ""}
-              />
-            </div>
-            <p className="mt-2 text-xs text-slate-300">
-              Displays latest processed output from <code>/static/rmbg_temp.png</code>.
-            </p>
-          </section>
-
-          <section className="glass rounded-2xl p-4 lg:col-span-5">
-            <h2 className="mb-3 text-lg font-semibold">Metadata & Spawn Approval</h2>
-            <form onSubmit={approveAndSpawn} id="metaForm" className="space-y-3">
-              <div>
-                <label className="mb-1 block text-sm text-slate-300">ชื่อผู้วาด (Drawer Name)</label>
-                <input
-                  id="drawerNameInput"
-                  type="text"
-                  value={drawerName}
-                  onChange={(e) => setDrawerName(e.target.value)}
-                  placeholder="e.g. น้องมิว"
-                  className="w-full rounded-lg border border-slate-500/40 bg-slate-900/70 px-3 py-2 text-sm outline-none focus:border-cyan-400"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm text-slate-300">Creature Name</label>
-                <input
-                  id="nameInput"
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Azure Falcon"
-                  className="w-full rounded-lg border border-slate-500/40 bg-slate-900/70 px-3 py-2 text-sm outline-none focus:border-cyan-400"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm text-slate-300">Creature Type</label>
-                <select
-                  id="typeInput"
-                  value={type}
-                  onChange={(e) => setType(e.target.value)}
-                  className="w-full rounded-lg border border-slate-500/40 bg-slate-900/70 px-3 py-2 text-sm outline-none focus:border-cyan-400"
-                >
-                  <option value="ground">Ground</option>
-                  <option value="sky">Sky</option>
-                  <option value="water">Water</option>
-                </select>
-              </div>
-              <button type="submit" id="approveBtn" className="w-full rounded-lg bg-emerald-500 px-4 py-2 font-semibold text-slate-900 hover:bg-emerald-400">
-                Approve & Spawn
-              </button>
-            </form>
-            <p id="actionLog" className="mt-3 text-xs text-slate-300">
-              {actionLog}
-            </p>
-          </section>
-        </main>
-      </div>
+          </>
+        )}
+      </main>
     </div>
   );
 }

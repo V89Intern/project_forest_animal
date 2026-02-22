@@ -56,7 +56,7 @@ export function HomePage() {
                 <span className="text-2xl">🖥️</span>
                 <div>
                   <div className="font-semibold">ใช้บนคอมพิวเตอร์</div>
-                  <div className="text-xs text-slate-300">Dashboard เต็มรูปแบบ กล้อง + Preview + Controls</div>
+                  <div className="text-xs text-slate-300">Report & Dashboard สำหรับดูข้อมูลต่างๆ </div>
                 </div>
               </a>
 

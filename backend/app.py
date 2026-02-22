@@ -26,6 +26,13 @@ from backend.scanner_module import (
     capture_and_process_single_frame,
     process_provided_frame,
 )
+from backend.db import init_db, query as db_query
+from backend.auth import (
+    create_token, require_customer_jwt, require_user_jwt,
+    CUST_EXP_H, USER_EXP_H
+)
+
+
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +52,12 @@ mimetypes.add_type("text/css", ".css")
 
 app = Flask(__name__, static_folder=None)
 CORS(app)
+
+# Initialise database (idempotent DDL + seed)
+try:
+    init_db()
+except Exception as _db_exc:
+    print(f"[WARN] DB init failed: {_db_exc}", file=sys.stderr)
 
 pipeline_lock = threading.Lock()
 pipeline_state = "IDLE"
@@ -237,26 +250,151 @@ def capture_process():
     return jsonify({"ok": True, "message": "Capture and process started."})
 
 
-@app.post("/api/login")
-def login():
-    """Verify a 6-digit PIN against Sheet2 and return the user name."""
+# ─── Auth — Customer ────────────────────────────────────────────────────────
+@app.post("/api/auth/customer/login")
+def customer_login():
+    """Verify a 6-digit PIN against the Customer table; return JWT."""
     data = request.get_json(silent=True) or {}
-    pin = str(data.get("pin", "")).strip()
+    pin  = str(data.get("pin", "")).strip()
 
     if not pin or len(pin) != 6 or not pin.isdigit():
         return jsonify({"ok": False, "error": "PIN ต้องเป็นตัวเลข 6 หลัก"}), 400
 
-    try:
-        from backend.sheets_service import verify_pin
-        result = verify_pin(pin)
-    except Exception as exc:
-        print(f"[login] PIN verification error: {exc}", file=sys.stderr)
-        return jsonify({"ok": False, "error": "ระบบตรวจสอบ PIN ขัดข้อง"}), 500
-
-    if result is None:
+    row = db_query(
+        "SELECT Customer_ID, Name, Role_ID FROM Customer WHERE PIN = %s",
+        (pin,), fetch="one"
+    )
+    if row is None:
         return jsonify({"ok": False, "error": "PIN ไม่ถูกต้อง"}), 401
 
-    return jsonify({"ok": True, "name": result["name"], "pin": result["pin"]})
+    token = create_token(
+        sub=str(row["customer_id"]),
+        role=str(row["role_id"]),
+        actor_type="customer",
+        hours=CUST_EXP_H,
+    )
+    return jsonify({"ok": True, "token": token, "name": row["name"]})
+
+
+# Backward-compat alias (old /api/login still works)
+@app.post("/api/login")
+def legacy_login():
+    return customer_login()
+
+
+# ─── Auth — User ─────────────────────────────────────────────────────────────
+@app.post("/api/auth/user/register")
+def user_register():
+    """Register a new public user; return JWT."""
+    data  = request.get_json(silent=True) or {}
+    phone = str(data.get("phone", "")).strip()
+    pdpa  = bool(data.get("pdpa", False))
+
+    if not phone:
+        return jsonify({"ok": False, "error": "phone is required"}), 400
+    if not pdpa:
+        return jsonify({"ok": False, "error": "PDPA consent required"}), 400
+
+    # role_id 3 = 'USER'
+    row = db_query(
+        """
+        INSERT INTO Users (Phone_Number, PDPA_Check, Role_ID)
+        VALUES (%s, %s, 3)
+        RETURNING User_ID, Role_ID
+        """,
+        (phone, pdpa), fetch="one"
+    )
+    token = create_token(
+        sub=str(row["user_id"]),
+        role=str(row["role_id"]),
+        actor_type="user",
+        hours=USER_EXP_H,
+    )
+    return jsonify({"ok": True, "token": token})
+
+
+@app.post("/api/auth/user/login")
+def user_login():
+    """Return JWT for an existing user by phone number."""
+    data  = request.get_json(silent=True) or {}
+    phone = str(data.get("phone", "")).strip()
+    if not phone:
+        return jsonify({"ok": False, "error": "phone is required"}), 400
+
+    row = db_query(
+        "SELECT User_ID, Role_ID FROM Users WHERE Phone_Number = %s ORDER BY Create_Timestamp DESC LIMIT 1",
+        (phone,), fetch="one"
+    )
+    if row is None:
+        return jsonify({"ok": False, "error": "ไม่พบผู้ใช้"}), 404
+
+    token = create_token(
+        sub=str(row["user_id"]),
+        role=str(row["role_id"]),
+        actor_type="user",
+        hours=USER_EXP_H,
+    )
+    return jsonify({"ok": True, "token": token})
+
+
+# ─── Customer Management ──────────────────────────────────────────────────────
+@app.get("/api/customers")
+@require_customer_jwt
+def list_customers():
+    """List all customers (masked PIN, Customer JWT required)."""
+    rows = db_query(
+        """
+        SELECT c.Customer_ID, c.Name, c.Role_ID, r.Role_Name,
+               LEFT(c.PIN, 2) || '****' AS pin_masked
+        FROM Customer c
+        LEFT JOIN Role r ON c.Role_ID = r.Role_ID
+        ORDER BY c.Customer_ID
+        """,
+        fetch="all"
+    )
+    return jsonify({"ok": True, "customers": [dict(r) for r in (rows or [])]})
+
+
+@app.post("/api/customers")
+@require_customer_jwt
+def add_customer():
+    """Add a new customer (PIN must be 6 digits and unique)."""
+    data = request.get_json(silent=True) or {}
+    pin  = str(data.get("pin", "")).strip()
+    name = str(data.get("name", "")).strip()
+    role_id = int(data.get("role_id", 1))
+
+    if not pin or len(pin) != 6 or not pin.isdigit():
+        return jsonify({"ok": False, "error": "PIN ต้องเป็นตัวเลข 6 หลัก"}), 400
+    if not name:
+        return jsonify({"ok": False, "error": "name is required"}), 400
+
+    # Check PIN uniqueness
+    existing = db_query("SELECT 1 FROM Customer WHERE PIN = %s", (pin,), fetch="one")
+    if existing:
+        return jsonify({"ok": False, "error": "PIN นี้ถูกใช้แล้ว"}), 409
+
+    row = db_query(
+        "INSERT INTO Customer (PIN, Name, Role_ID) VALUES (%s, %s, %s) RETURNING Customer_ID",
+        (pin, name, role_id), fetch="one"
+    )
+    return jsonify({"ok": True, "customer_id": row["customer_id"], "name": name}), 201
+
+
+@app.delete("/api/customers/<int:customer_id>")
+@require_customer_jwt
+def delete_customer(customer_id: int):
+    """Delete a customer by ID (cannot delete yourself)."""
+    caller_id = int(request.jwt_payload.get("sub", -1))
+    if caller_id == customer_id:
+        return jsonify({"ok": False, "error": "ไม่สามารถลบบัญชีตัวเองได้"}), 403
+
+    row = db_query("SELECT Name FROM Customer WHERE Customer_ID = %s", (customer_id,), fetch="one")
+    if row is None:
+        return jsonify({"ok": False, "error": "Customer not found"}), 404
+
+    db_query("DELETE FROM Customer WHERE Customer_ID = %s", (customer_id,))
+    return jsonify({"ok": True, "deleted": row["name"]})
 
 
 @app.post("/api/spawn")
@@ -299,23 +437,23 @@ def approve():
     final_path = ANIMATIONS_DIR / final_name
     shutil.move(str(RMBG_TEMP_FILE), str(final_path))
 
-    # Log to Google Sheet
+    # Log to PostgreSQL
     try:
-        from backend.sheets_service import log_approved_image
-        sheet_ok = log_approved_image(
-            creature_name=creature_name,
-            creature_type=creature_type,
-            filename=final_name,
-            image_path=str(final_path),
-            drawer_name=drawer_name,
-            entity_uuid=entity_uuid,
+        db_query(
+            """
+            INSERT INTO Picture_Electronic
+              (Url_Path, Phone_Number, Owner_Name, Uploader_ID, Uploader_Type)
+            VALUES (%s, %s, %s, %s, 'CUSTOMER')
+            """,
+            (
+                f"/static/animations/{final_name}",
+                "",                  # phone not provided at approve step
+                drawer_name or creature_name,
+                0,                   # system/unknown uploader
+            )
         )
-        if not sheet_ok:
-            print(f"[WARN] Sheet logging returned False for {final_name}", file=sys.stderr)
     except Exception as exc:
-        print(f"[WARN] Sheet logging skipped: {exc}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
+        print(f"[WARN] DB approve log skipped: {exc}", file=sys.stderr)
 
     update_pipeline("SYNCING", 100, "Approved and syncing creature to forest...")
     entity = {
@@ -343,6 +481,40 @@ def kill_all():
     active_entities.clear()
     update_pipeline("IDLE", 0, "Kill switch activated. All entities cleared.")
     return jsonify({"ok": True, "message": "All active entities cleared."})
+
+
+@app.delete("/api/animals/<path:filename>")
+def delete_animal(filename: str):
+    """Delete a single animal animation file by filename."""
+    safe_name = Path(filename).name           # strip any path traversal
+    file_path = ANIMATIONS_DIR / safe_name
+    if not file_path.exists() or not file_path.is_file():
+        return jsonify({"ok": False, "error": "File not found"}), 404
+    file_path.unlink(missing_ok=True)
+    # Remove from active entities list if present
+    active_entities[:] = [e for e in active_entities if e.get("filename") != safe_name]
+    return jsonify({"ok": True, "deleted": safe_name})
+
+
+@app.post("/api/animals/delete_many")
+def delete_many_animals():
+    """Delete multiple animal files by a list of filenames."""
+    data = request.get_json(silent=True) or {}
+    filenames = data.get("filenames", [])
+    if not isinstance(filenames, list) or len(filenames) == 0:
+        return jsonify({"ok": False, "error": "filenames list is required"}), 400
+
+    deleted, not_found = [], []
+    for fn in filenames:
+        safe_name = Path(fn).name
+        file_path = ANIMATIONS_DIR / safe_name
+        if file_path.exists() and file_path.is_file():
+            file_path.unlink(missing_ok=True)
+            deleted.append(safe_name)
+        else:
+            not_found.append(safe_name)
+    active_entities[:] = [e for e in active_entities if e.get("filename") not in deleted]
+    return jsonify({"ok": True, "deleted": deleted, "not_found": not_found})
 
 
 @app.post("/api/clear_forest")
@@ -391,20 +563,62 @@ def serve_rmbg(filename: str):
     return send_from_directory(RMBG_DIR, filename)
 
 
+# ─── Pictures (replaces /api/gallery) ───────────────────────────────────────
+@app.get("/api/pictures")
+@require_user_jwt
+def pictures():
+    """
+    Customer JWT  → can see all pictures (optionally filter by phone / type).
+    User JWT      → can only see pictures matching their own registered phone.
+    """
+    payload = request.jwt_payload
+    actor_type = payload.get("type")
+
+    phone_filter   = request.args.get("phone", "").strip()
+    owner_filter   = request.args.get("owner", "").strip()
+
+    conditions = []
+    params: list = []
+
+    if actor_type == "user":
+        # Users can only query their own phone
+        user_row = db_query(
+            "SELECT Phone_Number FROM Users WHERE User_ID = %s",
+            (payload["sub"],), fetch="one"
+        )
+        own_phone = user_row["phone_number"] if user_row else ""
+        conditions.append("Phone_Number = %s")
+        params.append(own_phone)
+    else:
+        # Customer can filter freely
+        if phone_filter:
+            conditions.append("Phone_Number = %s")
+            params.append(phone_filter)
+
+    if owner_filter:
+        conditions.append("Owner_Name ILIKE %s")
+        params.append(f"%{owner_filter}%")
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    rows = db_query(
+        f"""
+        SELECT PE_ID, Url_Path, Phone_Number, Owner_Name,
+               Uploader_ID, Uploader_Type, Upload_Timestamp
+        FROM Picture_Electronic
+        {where}
+        ORDER BY Upload_Timestamp DESC
+        LIMIT 200
+        """,
+        params or None, fetch="all"
+    )
+    return jsonify({"ok": True, "count": len(rows), "pictures": [dict(r) for r in (rows or [])]})
+
+
+# Backward-compat alias for old gallery endpoint
 @app.get("/api/gallery")
+@require_user_jwt
 def gallery():
-    """Search approved images by drawer_name and/or creature_type."""
-    drawer_name = request.args.get("drawer_name", "").strip()
-    creature_type = request.args.get("type", "").strip()
-
-    try:
-        from backend.sheets_service import search_entries
-        entries = search_entries(drawer_name=drawer_name, creature_type=creature_type)
-    except Exception as exc:
-        print(f"[gallery] search error: {exc}", file=sys.stderr)
-        entries = []
-
-    return jsonify({"ok": True, "count": len(entries), "entries": entries})
+    return pictures()
 
 
 @app.get("/api/download/<path:filename>")
