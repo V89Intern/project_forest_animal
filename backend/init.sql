@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS Customer (
 
 -- Users (public upload portal users, phone-based)
 CREATE TABLE IF NOT EXISTS Users (
-  User_ID          SERIAL      PRIMARY KEY,
+  User_ID          CHAR(3)     PRIMARY KEY CHECK (User_ID ~ '^\d{3}$'),
   Phone_Number     VARCHAR(20) NOT NULL,
   PDPA_Check       BOOLEAN     NOT NULL DEFAULT FALSE,
   Role_ID          INT         REFERENCES Role(Role_ID) ON DELETE SET NULL,

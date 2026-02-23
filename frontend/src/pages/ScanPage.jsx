@@ -25,6 +25,7 @@ export function ScanPage() {
   const [drawerName, setDrawerName] = useState(user?.name || "");
   const [creatureName, setCreatureName] = useState("");
   const [creatureType, setCreatureType] = useState("ground");
+  const [phoneNumber, setPhoneNumber] = useState("");
 
   // processing feedback
   const [progress, setProgress] = useState(0);
@@ -157,6 +158,7 @@ export function ScanPage() {
             type: finalType,
             name: creatureName || `${finalType}_creature`,
             drawer_name: drawerName,
+            phone_number: phoneNumber,
           });
           if (approveResp.ok) {
             setResultFilename(approveResp.data?.filename || "");
@@ -193,6 +195,7 @@ export function ScanPage() {
     setDrawerName("");
     setCreatureName("");
     setCreatureType("ground");
+    setPhoneNumber("");
     setResultFilename("");
     setProgress(0);
     setStatusMsg("");
@@ -275,7 +278,15 @@ export function ScanPage() {
                 placeholder="เช่น น้องมิว"
               />
             </div>
-
+            <div>
+              <label>เบอร์โทรเจ้าของ</label>
+              <input
+                type="tel"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="เช่น 0812345678"
+              />
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div>
                 <label>ชื่อสัตว์</label>

@@ -4,6 +4,7 @@ opencv-python==4.10.0.84
 pyzbar==0.1.9
 rembg==2.0.62
 numpy==1.26.4
+onnxruntime==1.17.1
 gspread==6.1.4
 google-auth==2.37.0
 python-dotenv==1.0.1

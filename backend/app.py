@@ -3,6 +3,7 @@ from pathlib import Path
 import base64
 import mimetypes
 import os
+import random
 import shutil
 import threading
 import time
@@ -296,13 +297,25 @@ def user_register():
         return jsonify({"ok": False, "error": "PDPA consent required"}), 400
 
     # role_id 3 = 'USER'
+    # Generate a unique 3-digit User_ID (000-999)
+
+    for _ in range(50):
+        uid = f"{random.randint(0, 999):03d}"
+        existing = db_query(
+            "SELECT 1 FROM Users WHERE User_ID = %s", (uid,), fetch="one"
+        )
+        if not existing:
+            break
+    else:
+        return jsonify({"ok": False, "error": "ไม่สามารถสร้าง User ID ได้ (เต็ม)"}), 500
+
     row = db_query(
         """
-        INSERT INTO Users (Phone_Number, PDPA_Check, Role_ID)
-        VALUES (%s, %s, 3)
+        INSERT INTO Users (User_ID, Phone_Number, PDPA_Check, Role_ID)
+        VALUES (%s, %s, %s, 3)
         RETURNING User_ID, Role_ID
         """,
-        (phone, pdpa), fetch="one"
+        (uid, phone, pdpa), fetch="one"
     )
     token = create_token(
         sub=str(row["user_id"]),
@@ -310,7 +323,7 @@ def user_register():
         actor_type="user",
         hours=USER_EXP_H,
     )
-    return jsonify({"ok": True, "token": token})
+    return jsonify({"ok": True, "token": token, "user_id": uid})
 
 
 @app.post("/api/auth/user/login")
@@ -426,6 +439,7 @@ def approve():
     creature_type = str(data.get("type", "ground")).lower()
     creature_name = str(data.get("name", "")).strip() or f"{creature_type}_creature"
     drawer_name = str(data.get("drawer_name", "")).strip()
+    phone_number = str(data.get("phone_number", "")).strip()
     if creature_type not in VALID_TYPES:
         return jsonify({"ok": False, "error": "type must be sky, ground, or water"}), 400
     if not RMBG_TEMP_FILE.exists():
@@ -447,7 +461,7 @@ def approve():
             """,
             (
                 f"/static/animations/{final_name}",
-                "",                  # phone not provided at approve step
+                phone_number,
                 drawer_name or creature_name,
                 0,                   # system/unknown uploader
             )
