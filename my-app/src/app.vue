@@ -17,14 +17,16 @@
               :key="'lat-' + idx" 
               class="carousel-card"
             >
-              <img 
-                :src="apiBase + '/static/animations/' + img.filename" 
-                :alt="img.creature_name" 
-                class="carousel-img" 
-                loading="lazy"
-              />
-              <div class="carousel-label">{{ img.creature_name || 'ไม่ระบุ' }}</div>
+            <img 
+              :src="apiBase + '/' + img.url_path"
+              :alt="img.creature_name" 
+              class="carousel-img" 
+              loading="lazy"
+            />
+            <div class="carousel-label">
+              {{ img.creature_name || 'ไม่ระบุ' }}
             </div>
+          </div>
           </div>
         </div>
       </div>
@@ -33,14 +35,14 @@
         <h2 class="section-title">ค้นหาภาพสัตว์ของคุณ</h2>
         
         <div class="input-group">
-          <label>ชื่อผู้วาด</label>
-          <input 
-            v-model="drawerName" 
-            type="text" 
-            placeholder="พิมพ์ชื่อผู้วาด..." 
-            class="custom-input" 
-            @keyup.enter="searchImages"
-          />
+          <label>ค้นหาชื่อหรือเบอร์โทร</label>
+            <input 
+              v-model="searchText"
+              type="text"
+              placeholder="พิมพ์ชื่อ หรือ เบอร์โทร..."
+              class="custom-input"
+              @keyup.enter="searchImages"
+            />
         </div>
 
         <div class="btn-row">
@@ -70,34 +72,40 @@
               </div>
 
               <div v-else-if="entries.length > 0" class="image-grid">
-                <div v-for="item in entries" :key="item.uuid" class="image-card">
-                  <div class="card-img-wrap">
-                    <img 
-                      :src="apiBase + '/static/animations/' + item.filename" 
-                      :alt="item.creature_name" 
-                      class="card-img" 
-                      loading="lazy"
-                    />
-                    <span :class="['type-badge', 'badge-' + item.creature_type]">
-                      {{ item.creature_type }}
-                    </span>
-                  </div>
-                  <div class="card-body">
-                    <div class="card-creature">{{ item.creature_name || 'ไม่ระบุชื่อ' }}</div>
-                    <div class="card-drawer">👤 {{ item.drawer_name || '-' }}</div>
-                    <div class="card-time">{{ item.timestamp }}</div>
-                    <button
-                      class="download-btn"
-                      :disabled="downloadingId === item.uuid"
-                      @click="downloadImage(item)"
-                    >
-                      <span v-if="downloadingId === item.uuid" class="spinner spinner-dl"></span>
-                      <span v-else>⬇</span>
-                      {{ downloadingId === item.uuid ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด' }}
-                    </button>
-                  </div>
-                </div>
-              </div>
+
+        <!--เพิ่มแล้วDownload ตามPicture_Electronic-->
+        <div v-for="item in entries" :key="item.pe_id" class="image-card"> 
+    
+          <div class="card-img-wrap">
+            <img 
+              :src="apiBase + '/' + item.url_path"
+              alt="image"
+              class="card-img"
+              loading="lazy"
+            />
+          </div>
+
+          <div class="card-body">
+            <div class="card-creature">
+              {{ item.owner_name || 'ไม่ระบุชื่อ' }}
+            </div>
+
+          <div class="card-time">
+              {{ item.upload_timestamp }}
+          </div>
+          
+          <button 
+            class="download-btn"
+            :disabled="downloadingId === item.pe_id" 
+            @click="downloadImage(item)"
+          >
+            <span v-if="downloadingId === item.pe_id" class="spinner spinner-dl"></span>
+            <span v-else>⬇</span>
+              {{ downloadingId === item.pe_id ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด' }}
+          </button>
+          </div>
+        </div>
+      </div>
 
               <div v-else class="empty-state">
                 <div class="empty-icon">{{ drawerName.trim() === '' ? '✏️' : '🔍' }}</div>
@@ -115,28 +123,37 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
-const API_BASE = import.meta.env.VITE_API_BASE || ''
-const apiBase = API_BASE.replace(/\/+$/, '')
+// const API_BASE = import.meta.env.VITE_API_BASE || ''
+const API_BASE = "http://localhost:5000" // กำหนดค่าเริ่มต้นเป็น localhost ใช้สำหรับทดสอบในเครื่องถ้าไม่มีการตั้งค่า VITE_API_BASE ใน .env จะใช้ค่านี้แทน
+const apiBase = API_BASE
+console.log('API_BASE =', API_BASE)
 
 const downloadingId = ref(null)
-
 async function downloadImage(item) {
   if (downloadingId.value) return
-  downloadingId.value = item.uuid
+  downloadingId.value = item.pe_id
   try {
-    const url = `${apiBase}/api/download/${item.filename}`
-    const res = await fetch(url)
+    const token = localStorage.getItem("token")
+    //ดึงชื่อไฟล์จาก url_path
+    const filename = item.url_path.split('/').pop()
+    const url = `${apiBase}/api/download/${filename}`
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
+
     if (!res.ok) throw new Error('Download failed')
     const blob = await res.blob()
     const blobUrl = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = blobUrl
-    // ใช้ชื่อไฟล์เดิม ถ้าไม่มีใช้ creature_name แทน
-    a.download = item.filename || `${item.creature_name || 'image'}.png`
+    a.download = filename
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(blobUrl)
+
   } catch (err) {
     console.error('Download error:', err)
     alert('ดาวน์โหลดไม่สำเร็จ กรุณาลองใหม่อีกครั้ง')
@@ -144,6 +161,7 @@ async function downloadImage(item) {
     downloadingId.value = null
   }
 }
+
 
 const isSplash = ref(true)
 const drawerName = ref('')
@@ -153,6 +171,7 @@ const searched = ref(false)
 const showModal = ref(false)
 const latestImages = ref([])
 const carouselTrack = ref(null)
+const searchText = ref('')
 
 // Duplicate latest images for seamless infinite scroll
 const duplicatedLatest = computed(() => {
@@ -160,25 +179,47 @@ const duplicatedLatest = computed(() => {
   return [...latestImages.value, ...latestImages.value]
 })
 
-
+// ฟังก์ชันค้นหาที่อัพเดตใหม่:การค้นหาทั้งชื่อและเบอร์โทร
 async function searchImages() {
-  // ถ้าช่องว่าง → แสดง modal ว่าไม่พบข้อมูล ไม่ต้อง fetch
-  if (!drawerName.value.trim()) {
+
+  const keyword = searchText.value.trim()
+
+  if (!keyword) {
     entries.value = []
-    searched.value = true
     showModal.value = true
     return
   }
 
   showModal.value = true
   loading.value = true
-  searched.value = true
+
   try {
     const params = new URLSearchParams()
-    params.set('drawer_name', drawerName.value.trim())
-    const res = await fetch(`${apiBase}/api/gallery?${params.toString()}`, { cache: 'no-store' })
+
+    // 🔥 Smart detect
+    const isPhone = /^[0-9]+$/.test(keyword)
+
+    if (isPhone) {
+      params.set('phone', keyword)
+    } else {
+      params.set('owner', keyword)
+    }
+
+    const token = localStorage.getItem('token')
+
+    const res = await fetch(
+      `${apiBase}/api/pictures?${params.toString()}`,
+      {
+        cache: 'no-store',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    )
+
     const data = await res.json()
-    entries.value = data.ok ? (data.entries || []) : []
+    entries.value = data.ok ? (data.pictures || []) : []
+
   } catch (err) {
     console.error('Search failed:', err)
     entries.value = []
@@ -194,15 +235,22 @@ function closeModal() {
 
 async function fetchLatest() {
   try {
-    const res = await fetch(`${apiBase}/api/gallery`, { cache: 'no-store' })
+    const token = localStorage.getItem('token')
+
+    const res = await fetch(`${apiBase}/api/gallery`, {
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
+
     const data = await res.json()
+    console.log("Latest:", data)
+
     if (data.ok && data.entries) {
-      // Sort by timestamp desc and take first 10
-      const sorted = [...data.entries].sort((a, b) => {
-        return (b.timestamp || '').localeCompare(a.timestamp || '')
-      })
-      latestImages.value = sorted.slice(0, 10)
+      latestImages.value = data.pictures // แก้ชื่อ key เป็น pictures ตามที่ backend ส่งมา
     }
+
   } catch (err) {
     console.error('Failed to fetch latest:', err)
   }
