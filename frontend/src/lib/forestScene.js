@@ -163,11 +163,25 @@ export function initializeForestScene(config) {
   const {
     mountEl,
     api,
+    focusFilename = "",
     onSpawnStart = () => { },
     onSpawnEnd = () => { },
     onStatusChange = () => { },
-    onCountChange = () => { }
+    onCountChange = () => { },
+    onFocusModeChange = () => { }
   } = config;
+  const normalizeFilename = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const noQuery = raw.split("?")[0];
+    const tail = noQuery.split("/").pop() || "";
+    try {
+      return decodeURIComponent(tail);
+    } catch (_) {
+      return tail;
+    }
+  };
+  let pendingFocusFilename = normalizeFilename(focusFilename);
 
   // ── Textures ────────────────────────────────────────────────────────────────
   const loader = new THREE.TextureLoader();
@@ -483,6 +497,9 @@ export function initializeForestScene(config) {
   const spawnQueue = [];
   let isSpawning = false;
   let destroyed = false;
+  let initialSyncDone = false;
+  let pendingFocusHoldMs = 0;
+  let focusReleaseTimer = null;
 
   function createAnimalSprite(animalData) {
     loader.load(api.assetUrl(animalData.url), (texture) => {
@@ -509,11 +526,19 @@ export function initializeForestScene(config) {
         y = 2.5;
       }
       sprite.position.set(x, y, z);
-      sprite.userData = { type: animalData.type, offset: Math.random() * 100, targetScale: 5 };
+      sprite.userData = {
+        type: animalData.type,
+        offset: Math.random() * 100,
+        targetScale: 5,
+        filename: animalData.filename
+      };
       scene.add(sprite);
       renderedAnimals.add(animalData.filename);
       onCountChange(spawnedAnimals.size);
       reportForestState();
+      if (pendingFocusFilename && pendingFocusFilename === normalizeFilename(animalData.filename)) {
+        focusOnAnimal(pendingFocusFilename, { holdMs: pendingFocusHoldMs });
+      }
     });
   }
 
@@ -527,6 +552,7 @@ export function initializeForestScene(config) {
     onSpawnEnd();
     createAnimalSprite(animal);
     onStatusChange(`Spawned: ${animal.filename}`);
+    focusOnAnimal(animal.filename, { holdMs: 5000 });
     isSpawning = false;
     processSpawnQueue();
   }
@@ -536,6 +562,16 @@ export function initializeForestScene(config) {
       const resp = await api.getLatestAnimals();
       if (!resp.ok) throw new Error("latest_animals failed");
       const animals = Array.isArray((resp.data || {}).items) ? resp.data.items : [];
+      if (!initialSyncDone) {
+        for (const a of animals) {
+          if (spawnedAnimals.has(a.filename)) continue;
+          spawnedAnimals.add(a.filename);
+          createAnimalSprite(a);
+        }
+        initialSyncDone = true;
+        onStatusChange("Initial forest sync complete");
+        return;
+      }
       for (const a of animals) {
         if (!spawnedAnimals.has(a.filename)) {
           spawnedAnimals.add(a.filename);
@@ -654,6 +690,57 @@ export function initializeForestScene(config) {
   controls.maxDistance = 400;
   controls.maxPolarAngle = Math.PI / 2.05;
 
+  function releaseFocus() {
+    if (focusReleaseTimer) {
+      clearTimeout(focusReleaseTimer);
+      focusReleaseTimer = null;
+    }
+    pendingFocusFilename = "";
+    pendingFocusHoldMs = 0;
+    controls.autoRotate = true;
+    controls.update();
+    onFocusModeChange(false);
+    onStatusChange("Free camera mode");
+  }
+
+  function focusOnAnimal(filename, options = {}) {
+    const holdMs = Math.max(0, Number(options.holdMs || 0));
+    const wanted = normalizeFilename(filename);
+    if (!wanted) return false;
+    let targetSprite = null;
+    scene.traverse((obj) => {
+      if (targetSprite) return;
+      if (!obj?.isSprite) return;
+      if (normalizeFilename(obj.userData?.filename) === wanted) targetSprite = obj;
+    });
+    if (!targetSprite) {
+      pendingFocusFilename = wanted;
+      pendingFocusHoldMs = holdMs;
+      return false;
+    }
+
+    const p = targetSprite.position.clone();
+    const offset = new THREE.Vector3(0, 12, 26);
+    camera.position.copy(p.clone().add(offset));
+    controls.target.copy(p);
+    controls.autoRotate = false;
+    controls.update();
+    pendingFocusFilename = "";
+    pendingFocusHoldMs = 0;
+    onFocusModeChange(true);
+    onStatusChange(`Focused on: ${wanted}`);
+    if (focusReleaseTimer) {
+      clearTimeout(focusReleaseTimer);
+      focusReleaseTimer = null;
+    }
+    if (holdMs > 0) {
+      focusReleaseTimer = setTimeout(() => {
+        releaseFocus();
+      }, holdMs);
+    }
+    return true;
+  }
+
   // ── Animate ──────────────────────────────────────────────────────────────────
   let rafId = 0;
   function animate() {
@@ -742,10 +829,13 @@ export function initializeForestScene(config) {
   return {
     applyTimeMode,
     applyWeatherMode,
+    focusOnAnimal,
+    releaseFocus,
     cleanup: () => {
       destroyed = true;
       clearInterval(spawnInterval);
       clearInterval(reportInterval);
+      if (focusReleaseTimer) clearTimeout(focusReleaseTimer);
       cancelAnimationFrame(rafId);
       window.removeEventListener("resize", handleResize);
       controls.dispose();

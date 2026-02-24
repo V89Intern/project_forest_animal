@@ -10,6 +10,7 @@ import time
 import sys
 import uuid
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import unquote, urlparse
 
 from dotenv import load_dotenv
 
@@ -137,19 +138,55 @@ def detect_type_from_filename(filename: str) -> str:
     return "unknown"
 
 
-def list_latest_animations(limit: int = MAX_ITEMS) -> List[Dict[str, str]]:
-    ANIMATIONS_DIR.mkdir(parents=True, exist_ok=True)
-    files = [p for p in ANIMATIONS_DIR.iterdir() if p.is_file()]
-    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    latest = []
-    for path in files[:limit]:
+def filename_from_url_path(url_path: str) -> str:
+    raw = str(url_path or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    path = parsed.path or raw
+    if "?" in path:
+        path = path.split("?", 1)[0]
+    name = Path(path).name
+    if not name:
+        return ""
+    try:
+        return unquote(name)
+    except Exception:
+        return name
+
+
+def list_latest_animations(limit: int = MAX_ITEMS, exclude_filenames: Optional[set[str]] = None) -> List[Dict[str, str]]:
+    excluded = set(exclude_filenames or set())
+    rows = db_query(
+        """
+        SELECT Url_Path, Owner_Name, Phone_Number, Upload_Timestamp
+        FROM Picture_Electronic
+        WHERE Url_Path ILIKE %s
+        ORDER BY Upload_Timestamp DESC
+        LIMIT %s
+        """,
+        ("%/static/animations/%", max(limit * 10, 200)),
+        fetch="all",
+    ) or []
+    latest: List[Dict[str, str]] = []
+    seen: set[str] = set()
+    for row in rows:
+        url_path = str(row.get("url_path") or "").strip()
+        filename = filename_from_url_path(url_path)
+        if not filename or filename in seen or filename in excluded:
+            continue
+        seen.add(filename)
         latest.append(
             {
-                "filename": path.name,
-                "type": detect_type_from_filename(path.name),
-                "url": f"/static/animations/{path.name}",
+                "filename": filename,
+                "type": detect_type_from_filename(filename),
+                "url": url_path,
+                "owner_name": str(row.get("owner_name") or ""),
+                "phone_number": str(row.get("phone_number") or ""),
             }
         )
+        if len(latest) >= limit:
+            break
     return latest
 
 
@@ -380,8 +417,8 @@ def capture_process():
         return jsonify({"ok": False, "error": "image_data is required"}), 400
     if len(drawer_name) < 2:
         return jsonify({"ok": False, "error": "drawer_name must be at least 2 characters"}), 400
-    if len(phone_number) < 9 or len(phone_number) > 15:
-        return jsonify({"ok": False, "error": "phone_number must be 9-15 digits"}), 400
+    if len(phone_number) != 10:
+        return jsonify({"ok": False, "error": "phone_number must be exactly 10 digits"}), 400
     if not requester_name:
         requester_name = drawer_name
 
@@ -693,8 +730,8 @@ def approve():
         return jsonify({"ok": False, "error": "type must be sky, ground, or water"}), 400
     if len(drawer_name) < 2:
         return jsonify({"ok": False, "error": "drawer_name must be at least 2 characters"}), 400
-    if len(phone_number) < 9 or len(phone_number) > 15:
-        return jsonify({"ok": False, "error": "phone_number must be 9-15 digits"}), 400
+    if len(phone_number) != 10:
+        return jsonify({"ok": False, "error": "phone_number must be exactly 10 digits"}), 400
     if len(creature_name.strip()) < 2:
         return jsonify({"ok": False, "error": "name must be at least 2 characters"}), 400
     if job_id:
@@ -791,36 +828,63 @@ def kill_all():
 
 @app.delete("/api/animals/<path:filename>")
 def delete_animal(filename: str):
-    """Delete a single animal animation file by filename."""
+    """Delete a single animal animation file + DB records by filename."""
     safe_name = Path(filename).name           # strip any path traversal
+    db_deleted = db_query(
+        """
+        DELETE FROM Picture_Electronic
+        WHERE Url_Path = %s OR Url_Path ILIKE %s
+        RETURNING PE_ID
+        """,
+        (f"/static/animations/{safe_name}", f"%/{safe_name}"),
+        fetch="all",
+    ) or []
     file_path = ANIMATIONS_DIR / safe_name
-    if not file_path.exists() or not file_path.is_file():
+    file_deleted = False
+    if file_path.exists() and file_path.is_file():
+        file_path.unlink(missing_ok=True)
+        file_deleted = True
+    if not db_deleted and not file_deleted:
         return jsonify({"ok": False, "error": "File not found"}), 404
-    file_path.unlink(missing_ok=True)
     # Remove from active entities list if present
     active_entities[:] = [e for e in active_entities if e.get("filename") != safe_name]
-    return jsonify({"ok": True, "deleted": safe_name})
+    return jsonify({"ok": True, "deleted": safe_name, "db_deleted": len(db_deleted), "file_deleted": file_deleted})
 
 
 @app.post("/api/animals/delete_many")
 def delete_many_animals():
-    """Delete multiple animal files by a list of filenames."""
+    """Delete multiple animal files + DB records by filename list."""
     data = request.get_json(silent=True) or {}
     filenames = data.get("filenames", [])
     if not isinstance(filenames, list) or len(filenames) == 0:
         return jsonify({"ok": False, "error": "filenames list is required"}), 400
 
     deleted, not_found = [], []
+    db_removed_total = 0
     for fn in filenames:
         safe_name = Path(fn).name
+        db_deleted = db_query(
+            """
+            DELETE FROM Picture_Electronic
+            WHERE Url_Path = %s OR Url_Path ILIKE %s
+            RETURNING PE_ID
+            """,
+            (f"/static/animations/{safe_name}", f"%/{safe_name}"),
+            fetch="all",
+        ) or []
+        db_removed_total += len(db_deleted)
         file_path = ANIMATIONS_DIR / safe_name
+        file_deleted = False
         if file_path.exists() and file_path.is_file():
             file_path.unlink(missing_ok=True)
-            deleted.append(safe_name)
+            file_deleted = True
+        if db_deleted or file_deleted:
+            if safe_name not in deleted:
+                deleted.append(safe_name)
         else:
             not_found.append(safe_name)
     active_entities[:] = [e for e in active_entities if e.get("filename") not in deleted]
-    return jsonify({"ok": True, "deleted": deleted, "not_found": not_found})
+    return jsonify({"ok": True, "deleted": deleted, "not_found": not_found, "db_deleted": db_removed_total})
 
 
 @app.post("/api/clear_forest")
@@ -832,11 +896,21 @@ def clear_forest():
         if path.is_file():
             path.unlink(missing_ok=True)
             removed += 1
+    db_removed_rows = db_query(
+        """
+        DELETE FROM Picture_Electronic
+        WHERE Url_Path ILIKE %s
+        RETURNING PE_ID
+        """,
+        ("%/static/animations/%",),
+        fetch="all",
+    ) or []
+    db_removed = len(db_removed_rows)
     active_entities.clear()
     forest_rendered_entities = []
     forest_last_seen_ts = time.time()
-    update_pipeline("IDLE", 0, f"Forest cleared. Removed {removed} animation files.")
-    return jsonify({"ok": True, "removed": removed})
+    update_pipeline("IDLE", 0, f"Forest cleared. Removed {removed} files and {db_removed} DB rows.")
+    return jsonify({"ok": True, "removed_files": removed, "removed_db": db_removed})
 
 
 @app.post("/api/forest_state")

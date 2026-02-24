@@ -124,10 +124,36 @@ function NavItem({ icon, label, href, active }) {
   );
 }
 
+function normalizeFilename(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const noQuery = raw.split("?")[0];
+  const tail = noQuery.split("/").pop() || "";
+  try {
+    return decodeURIComponent(tail);
+  } catch (_) {
+    return tail;
+  }
+}
+
+function shortCreatureLabel(filename) {
+  const raw = normalizeFilename(filename);
+  if (!raw) return "-";
+  return raw.replace(/\.[^.]+$/, "");
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export function ForestPage() {
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
+  const focusFilename = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search || "");
+      return (params.get("focus") || "").trim();
+    } catch (_) {
+      return "";
+    }
+  })();
   const [count, setCount] = useState(0);
   const [status, setStatus] = useState("System Active — Listening for Spawn");
   const [overlayAnimal, setOverlayAnimal] = useState(null);
@@ -135,6 +161,11 @@ export function ForestPage() {
   const [timeMode, setTimeMode] = useState("morning"); // "morning" | "night"
   const [weatherMode, setWeatherMode] = useState("sunny"); // "sunny" | "rain" | "snow"
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [availableAnimals, setAvailableAnimals] = useState([]);
+  const [selectedFocus, setSelectedFocus] = useState(normalizeFilename(focusFilename));
+  const [focusOwnerPhone, setFocusOwnerPhone] = useState("");
+  const [focusType, setFocusType] = useState("all");
+  const [isFocusMode, setIsFocusMode] = useState(false);
 
   useEffect(() => {
     if (!mountRef.current) return undefined;
@@ -143,12 +174,17 @@ export function ForestPage() {
       result = initializeForestScene({
         mountEl: mountRef.current,
         api: ForestAPI,
+        focusFilename,
         onSpawnStart: (animal) => setOverlayAnimal({ ...animal, url: ForestAPI.assetUrl(animal.url) }),
         onSpawnEnd: () => setOverlayAnimal(null),
         onStatusChange: (text) => setStatus(text),
-        onCountChange: (value) => setCount(value)
+        onCountChange: (value) => setCount(value),
+        onFocusModeChange: (active) => setIsFocusMode(Boolean(active))
       });
       sceneRef.current = result;
+      if (focusFilename) {
+        setStatus(`Finding target in forest: ${focusFilename}`);
+      }
     } catch (err) {
       const reason = err?.message || String(err);
       setForestLoadError(`Failed to load forest scene: ${reason}`);
@@ -157,6 +193,58 @@ export function ForestPage() {
       if (result && typeof result.cleanup === "function") result.cleanup();
     };
   }, []);
+
+  useEffect(() => {
+    if (!focusFilename) return;
+    const filename = normalizeFilename(focusFilename);
+    setSelectedFocus(filename);
+    sceneRef.current?.focusOnAnimal?.(filename);
+  }, [focusFilename]);
+
+  useEffect(() => {
+    let stop = false;
+    async function loadAnimals() {
+      const r = await ForestAPI.getLatestAnimals();
+      if (!r.ok || stop) return;
+      const items = Array.isArray(r.data?.items) ? r.data.items : [];
+      const normalized = items
+        .map((a) => ({
+          filename: normalizeFilename(a.filename || a.url),
+          type: String(a.type || "unknown"),
+          owner_name: String(a.owner_name || ""),
+          phone_number: String(a.phone_number || ""),
+        }))
+        .filter((a) => a.filename);
+      setAvailableAnimals(normalized);
+    }
+    loadAnimals();
+    const id = setInterval(loadAnimals, 3000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  const handleFocusCreature = useCallback((filename) => {
+    const normalized = normalizeFilename(filename);
+    if (!normalized) return;
+    setSelectedFocus(normalized);
+    sceneRef.current?.focusOnAnimal?.(normalized);
+  }, []);
+
+  const handleFreeCamera = useCallback(() => {
+    sceneRef.current?.releaseFocus?.();
+    setIsFocusMode(false);
+  }, []);
+
+  const filteredAnimals = availableAnimals.filter((a) => {
+    const q = focusOwnerPhone.trim().toLowerCase();
+    const owner = (a.owner_name || "").toLowerCase();
+    const phone = (a.phone_number || "").toLowerCase();
+    const ownerPhoneMatch = !q || owner.includes(q) || phone.includes(q);
+    const typeMatch = focusType === "all" || a.type === focusType;
+    return ownerPhoneMatch && typeMatch;
+  });
 
   const handleTimeChange = useCallback((isNight) => {
     const mode = isNight ? "night" : "morning";
@@ -254,6 +342,62 @@ export function ForestPage() {
           <span className="atm-label">
             {isNight ? "Night" : "Day"} · {weatherMode.charAt(0).toUpperCase() + weatherMode.slice(1)}
           </span>
+        </div>
+        <div className="sidebar-divider" />
+
+        <div className="sidebar-section">
+          <div className="section-heading">Creature Focus</div>
+          <button
+            className="focus-free-btn"
+            onClick={handleFreeCamera}
+            disabled={!isFocusMode}
+            title={isFocusMode ? "Exit focus mode" : "Already in free camera mode"}
+          >
+            Free Camera
+          </button>
+          <div className="focus-filters">
+            <input
+              className="focus-search"
+              type="text"
+              value={focusOwnerPhone}
+              onChange={(e) => setFocusOwnerPhone(e.target.value)}
+              placeholder="Filter owner or phone"
+            />
+            <div className="focus-type-group" role="tablist" aria-label="Filter creature type">
+              {[
+                { key: "all", label: "All" },
+                { key: "ground", label: "Ground" },
+                { key: "sky", label: "Sky" },
+                { key: "water", label: "Water" },
+              ].map((opt) => (
+                <button
+                  key={opt.key}
+                  className={`focus-type-btn ${focusType === opt.key ? "focus-type-btn--active" : ""}`}
+                  onClick={() => setFocusType(opt.key)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="focus-list">
+            {filteredAnimals.length === 0 ? (
+              <div className="focus-empty">No creatures available</div>
+            ) : (
+              filteredAnimals.map((a) => (
+                <button
+                  key={a.filename}
+                  className={`focus-item ${selectedFocus === a.filename ? "focus-item--active" : ""}`}
+                  onClick={() => handleFocusCreature(a.filename)}
+                  title={a.filename}
+                >
+                  <span className="focus-item__name">{shortCreatureLabel(a.filename)}</span>
+                  <span className="focus-item__meta">{a.owner_name || a.phone_number || "-"}</span>
+                  <span className={`focus-item__type focus-item__type--${a.type}`}>{a.type}</span>
+                </button>
+              ))
+            )}
+          </div>
         </div>
       </aside>
 

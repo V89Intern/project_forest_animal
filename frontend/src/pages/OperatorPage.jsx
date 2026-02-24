@@ -65,44 +65,63 @@ function Card({ title, children, className = "" }) {
     </div>
   );
 }
+function extractAnimationFilename(urlPath = "") {
+  const raw = String(urlPath || "").trim();
+  if (!raw) return "";
+  const noQuery = raw.split("?")[0];
+  const tail = noQuery.split("/").pop() || "";
+  try {
+    return decodeURIComponent(tail);
+  } catch (_) {
+    return tail;
+  }
+}
 
 // ─── Picture table ────────────────────────────────────────────────────────────
 function PictureTable({ rows = [], showAll = false }) {
-  if (rows.length === 0) return <div className="db-empty">ยังไม่มีข้อมูล</div>;
+  if (rows.length === 0) return <div className="db-empty">No data</div>;
   return (
     <div className="db-table-wrap">
       <table className="db-table">
         <thead>
           <tr>
             <th>ID</th>
-            <th>เบอร์โทร</th>
-            <th>ชื่อเจ้าของ</th>
-            <th>ประเภท</th>
-            <th>วันที่อัปโหลด</th>
+            <th>Phone</th>
+            <th>Owner</th>
+            <th>Type</th>
+            <th>Uploaded</th>
+            <th>Forest</th>
             {showAll && <th>URL</th>}
           </tr>
         </thead>
         <tbody>
-          {rows.map((p) => (
-            <tr key={p.pe_id}>
-              <td className="db-table__id">{p.pe_id}</td>
-              <td>{p.phone_number || "—"}</td>
-              <td>{p.owner_name || "—"}</td>
-              <td>
-                <span className={`db-badge db-badge--${(p.uploader_type || "").toLowerCase()}`}>
-                  {p.uploader_type || "—"}
-                </span>
-              </td>
-              <td className="db-table__date">
-                {p.upload_timestamp ? new Date(p.upload_timestamp).toLocaleString("th-TH") : "—"}
-              </td>
-              {showAll && (
+          {rows.map((p) => {
+            const filename = extractAnimationFilename(p.url_path);
+            const focusHref = filename ? `/forest?focus=${encodeURIComponent(filename)}` : "";
+            return (
+              <tr key={p.pe_id}>
+                <td className="db-table__id">{p.pe_id}</td>
+                <td>{p.phone_number || "-"}</td>
+                <td>{p.owner_name || "-"}</td>
                 <td>
-                  <a href={p.url_path} target="_blank" rel="noreferrer" className="db-link">View</a>
+                  <span className={`db-badge db-badge--${(p.uploader_type || "").toLowerCase()}`}>
+                    {p.uploader_type || "-"}
+                  </span>
                 </td>
-              )}
-            </tr>
-          ))}
+                <td className="db-table__date">
+                  {p.upload_timestamp ? new Date(p.upload_timestamp).toLocaleString("th-TH") : "-"}
+                </td>
+                <td>
+                  {focusHref ? <a href={focusHref} className="db-link">Go to Position</a> : "-"}
+                </td>
+                {showAll && (
+                  <td>
+                    <a href={p.url_path} target="_blank" rel="noreferrer" className="db-link">View</a>
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -342,7 +361,6 @@ export function OperatorPage() {
                   <table className="db-table">
                     <thead>
                       <tr>
-                        <th>Position</th>
                         <th>Job ID</th>
                         <th>Status</th>
                         <th>Requester</th>
@@ -353,7 +371,6 @@ export function OperatorPage() {
                     <tbody>
                       {queueTop5.map((j) => (
                         <tr key={j.job_id}>
-                          <td>{`${j.queue_position}/${j.queue_total}`}</td>
                           <td className="db-table__id">{j.job_id}</td>
                           <td>{j.status}</td>
                           <td>{j.requester_name || j.drawer_name || "-"}</td>
@@ -527,3 +544,4 @@ export function OperatorPage() {
     </div>
   );
 }
+

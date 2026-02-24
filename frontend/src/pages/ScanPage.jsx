@@ -39,7 +39,7 @@ export function ScanPage() {
     const phone = (phoneNumber || "").replace(/\D/g, "");
     if (drawer.length < 2) return "Please enter drawer name (at least 2 characters).";
     if (creature.length < 2) return "Please enter creature name (at least 2 characters).";
-    if (phone.length < 9 || phone.length > 15) return "Please enter a valid phone number (9-15 digits).";
+    if (phone.length !== 10) return "Please enter a valid phone number (exactly 10 digits).";
     return "";
   }
 
@@ -321,6 +321,7 @@ export function ScanPage() {
                 type="text"
                 value={drawerName}
                 onChange={(e) => { setDrawerName(e.target.value); setFormError(""); }}
+                required
                 placeholder="เช่น น้องมิว"
               />
             </div>
@@ -329,8 +330,12 @@ export function ScanPage() {
               <input
                 type="tel"
                 value={phoneNumber}
-                onChange={(e) => { setPhoneNumber(e.target.value.replace(/\D/g, "")); setFormError(""); }}
+                onChange={(e) => { setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10)); setFormError(""); }}
                 placeholder="เช่น 0812345678"
+                inputMode="numeric"
+                pattern="[0-9]{10}"
+                maxLength={10}
+                required
               />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -340,6 +345,7 @@ export function ScanPage() {
                   type="text"
                   value={creatureName}
                   onChange={(e) => { setCreatureName(e.target.value); setFormError(""); }}
+                  required
                   placeholder="เช่น นกอินทรี"
                 />
               </div>
@@ -399,6 +405,4 @@ export function ScanPage() {
     </div>
   );
 }
-
-
 
