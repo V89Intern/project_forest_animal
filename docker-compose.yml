@@ -48,6 +48,19 @@ services:
       - "5173:80"
     restart: unless-stopped
 
+  myapp:
+    build:
+      context: .
+      dockerfile: my-app/Dockerfile
+      args:
+        VITE_API_BASE: ""
+    container_name: dmf-myapp
+    depends_on:
+      - backend
+    ports:
+      - "5174:80"
+    restart: unless-stopped
+
 volumes:
   pgdata:
   dmf_outputs:

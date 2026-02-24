@@ -5,11 +5,10 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Runtime libs for OpenCV + pyzbar
+# Runtime libs for OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
-    libzbar0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt /app/backend/requirements.txt

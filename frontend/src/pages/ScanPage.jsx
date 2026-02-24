@@ -127,7 +127,10 @@ export function ScanPage() {
     setProgress(10);
     setStatusMsg("กำลังส่งรูปไปประมวลผล...");
 
-    const captureResp = await ForestAPI.captureProcess({ image_data: capturedImage });
+    const captureResp = await ForestAPI.captureProcess({
+      image_data: capturedImage,
+      type: creatureType,
+    });
     if (!captureResp.ok) {
       setStatusMsg(captureResp.data?.error || "ส่งรูปไม่สำเร็จ");
       setTimeout(() => retake(), 2000);
@@ -149,8 +152,7 @@ export function ScanPage() {
         setStatusMsg(d.message || "กำลังประมวลผล...");
 
         if (d.state === "READY_FOR_REVIEW") {
-          const detected = (d.detected_type || "").toLowerCase();
-          const finalType = ["sky", "ground", "water"].includes(detected) ? detected : creatureType;
+          const finalType = creatureType;
 
           setProgress(90);
           setStatusMsg("กำลังบันทึกสัตว์เข้าป่า...");

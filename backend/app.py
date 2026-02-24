@@ -23,7 +23,6 @@ import cv2
 import numpy as np
 
 from backend.scanner_module import (
-    DEFAULT_QR_MAPPING,
     capture_and_process_single_frame,
     process_provided_frame,
 )
@@ -120,22 +119,22 @@ def update_pipeline(state: str, progress: int, message: str, preview: Optional[s
         pipeline_cond.notify_all()
 
 
-def run_capture_process(image_data: Optional[str] = None) -> None:
+def run_capture_process(image_data: Optional[str] = None, requested_type: Optional[str] = None) -> None:
     global latest_detected_type
     RMBG_DIR.mkdir(parents=True, exist_ok=True)
     ANIMATIONS_DIR.mkdir(parents=True, exist_ok=True)
     RMBG_TEMP_FILE.parent.mkdir(parents=True, exist_ok=True)
     update_pipeline("CAPTURING", 20, "Capturing webcam frame with scanner_module...")
-    update_pipeline("PROCESSING", 65, "Running warp + QR + RMBG pipeline...")
+    update_pipeline("PROCESSING", 65, "Running warp + RMBG pipeline...")
     try:
         if image_data:
             payload = image_data.split(",", 1)[1] if "," in image_data else image_data
             raw = base64.b64decode(payload)
             arr = np.frombuffer(raw, dtype=np.uint8)
             frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            result = process_provided_frame(frame, output_dir=str(OUTPUTS_DIR), qr_mapping=DEFAULT_QR_MAPPING)
+            result = process_provided_frame(frame, output_dir=str(OUTPUTS_DIR), animal_type=requested_type)
         else:
-            result = capture_and_process_single_frame(output_dir=str(OUTPUTS_DIR), qr_mapping=DEFAULT_QR_MAPPING)
+            result = capture_and_process_single_frame(output_dir=str(OUTPUTS_DIR), animal_type=requested_type)
 
         if not result.get("ok"):
             latest_detected_type = None
@@ -152,7 +151,7 @@ def run_capture_process(image_data: Optional[str] = None) -> None:
         update_pipeline(
             "READY_FOR_REVIEW",
             100,
-            f"Preview ready for approval (detected type: {animal_type}).",
+            f"Preview ready for approval (selected type: {animal_type}).",
             preview=RMBG_TEMP_FILE.name,
         )
     except Exception as exc:
@@ -246,7 +245,15 @@ def capture_process():
 
     data = request.get_json(silent=True) or {}
     image_data = data.get("image_data")
-    thread = threading.Thread(target=run_capture_process, kwargs={"image_data": image_data}, daemon=True)
+    requested_type_raw = str(data.get("type", "")).strip().lower()
+    requested_type = requested_type_raw if requested_type_raw in VALID_TYPES else None
+    if requested_type_raw and requested_type is None:
+        return jsonify({"ok": False, "error": "type must be sky, ground, or water"}), 400
+    thread = threading.Thread(
+        target=run_capture_process,
+        kwargs={"image_data": image_data, "requested_type": requested_type},
+        daemon=True,
+    )
     thread.start()
     return jsonify({"ok": True, "message": "Capture and process started."})
 

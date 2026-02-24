@@ -8,22 +8,17 @@ from typing import Dict, Optional, Union
 
 import cv2
 import numpy as np
-from pyzbar.pyzbar import decode
 from rembg import remove, new_session
 
 
-# Use isnet-anime model — optimized for drawn/cartoon-style images
-_rembg_session = new_session("isnet-anime")
+# Use isnet-anime model — optimized for drawn/cartoon-style images.
+# Lazily initialize so API startup does not block on first model download.
+_rembg_session = None
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = str(PROJECT_ROOT / "outputs")
 STATIC_PREVIEW_FILE = PROJECT_ROOT / "static" / "rmbg_temp.png"
 VALID_TYPES = {"sky", "ground", "water"}
-DEFAULT_QR_MAPPING = {
-    "https://q.me-qr.com/vpnp9j5c": "sky",
-    "https://q.me-qr.com/another_id": "ground",
-    "https://q.me-qr.com/water_id": "water",
-}
 
 
 def ensure_python_310() -> None:
@@ -64,24 +59,11 @@ def four_point_transform(image: np.ndarray, pts: np.ndarray) -> np.ndarray:
     return cv2.warpPerspective(image, matrix, (max_width, max_height))
 
 
-def detect_animal_type(frame: np.ndarray, qr_mapping: Dict[str, str]) -> str:
-    current_animal_type = "unknown"
-    decoded_objects = decode(frame)
-    for obj in decoded_objects:
-        qr_data = obj.data.decode("utf-8")
-        if qr_data in qr_mapping:
-            current_animal_type = qr_mapping[qr_data]
-        else:
-            data_lower = qr_data.lower()
-            if "sky" in data_lower:
-                current_animal_type = "sky"
-            elif "ground" in data_lower:
-                current_animal_type = "ground"
-            elif "water" in data_lower:
-                current_animal_type = "water"
-            else:
-                current_animal_type = "unknown"
-    return current_animal_type
+def normalize_animal_type(animal_type: Optional[str]) -> str:
+    if not animal_type:
+        return "unknown"
+    value = str(animal_type).strip().lower()
+    return value if value in VALID_TYPES else "unknown"
 
 
 def find_document_contour(frame: np.ndarray) -> Optional[np.ndarray]:
@@ -103,20 +85,26 @@ def find_document_contour(frame: np.ndarray) -> Optional[np.ndarray]:
 def process_frame_to_transparent(frame: np.ndarray, doc_cnt: np.ndarray) -> np.ndarray:
     warped = four_point_transform(frame, doc_cnt.reshape(4, 2))
     warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
-    output_rgba = remove(warped_rgb, session=_rembg_session)
+    output_rgba = remove(warped_rgb, session=get_rembg_session())
     return cv2.cvtColor(output_rgba, cv2.COLOR_RGBA2BGRA)
+
+
+def get_rembg_session():
+    global _rembg_session
+    if _rembg_session is None:
+        _rembg_session = new_session("isnet-anime")
+    return _rembg_session
 
 
 def process_provided_frame(
     frame: np.ndarray,
     output_dir: str = OUTPUT_DIR,
-    qr_mapping: Optional[Dict[str, str]] = None,
+    animal_type: Optional[str] = None,
 ) -> Dict[str, Union[bool, str]]:
-    mapping = qr_mapping or DEFAULT_QR_MAPPING
     if frame is None or frame.size == 0:
         return {"ok": False, "error": "Invalid frame data."}
 
-    current_animal_type = detect_animal_type(frame, mapping)
+    current_animal_type = normalize_animal_type(animal_type)
     doc_cnt = find_document_contour(frame)
     if doc_cnt is None:
         return {"ok": False, "error": "No document contour detected."}
@@ -141,9 +129,8 @@ def capture_and_process_single_frame(
     camera_index: int = 0,
     width: int = 1280,
     height: int = 720,
-    qr_mapping: Optional[Dict[str, str]] = None,
+    animal_type: Optional[str] = None,
 ) -> Dict[str, Union[bool, str]]:
-    mapping = qr_mapping or DEFAULT_QR_MAPPING
     cap = cv2.VideoCapture(camera_index)
     cap.set(3, width)
     cap.set(4, height)
@@ -153,12 +140,11 @@ def capture_and_process_single_frame(
     if not success:
         return {"ok": False, "error": "Cannot read from webcam."}
 
-    current_animal_type = detect_animal_type(frame, mapping)
     doc_cnt = find_document_contour(frame)
     if doc_cnt is None:
         return {"ok": False, "error": "No document contour detected."}
 
-    return process_provided_frame(frame, output_dir=output_dir, qr_mapping=mapping)
+    return process_provided_frame(frame, output_dir=output_dir, animal_type=animal_type)
 
 
 def run_scanner() -> None:
@@ -169,7 +155,7 @@ def run_scanner() -> None:
     if not cap.isOpened():
         raise RuntimeError("Cannot open webcam.")
 
-    qr_mapping = DEFAULT_QR_MAPPING
+    selected_type = normalize_animal_type(os.getenv("SCANNER_DEFAULT_TYPE", "ground"))
     print("--- Digital Magic Forest Scanner (Pro Version) ---")
     print("คำแนะนำ: วางกระดาษบนพื้นสีเข้ม | กด 's' สแกน | กด 'q' ออก")
 
@@ -179,38 +165,6 @@ def run_scanner() -> None:
             break
 
         display_frame = frame.copy()
-        decoded_objects = decode(frame)
-        current_animal_type = "unknown"
-
-        for obj in decoded_objects:
-            qr_data = obj.data.decode("utf-8")
-            points_qr = obj.polygon
-            if qr_data in qr_mapping:
-                current_animal_type = qr_mapping[qr_data]
-            else:
-                data_lower = qr_data.lower()
-                if "sky" in data_lower:
-                    current_animal_type = "sky"
-                elif "ground" in data_lower:
-                    current_animal_type = "ground"
-                elif "water" in data_lower:
-                    current_animal_type = "water"
-                else:
-                    current_animal_type = "unknown"
-
-            if points_qr is not None and len(points_qr) == 4:
-                pts_qr = np.array(points_qr, np.int32).reshape((-1, 1, 2))
-                cv2.polylines(display_frame, [pts_qr], True, (0, 255, 0), 3)
-
-            cv2.putText(
-                display_frame,
-                f"Detected: {current_animal_type}",
-                (obj.rect.left, obj.rect.top - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 255, 0),
-                2,
-            )
 
         doc_cnt = find_document_contour(frame)
         if doc_cnt is not None:
@@ -224,10 +178,10 @@ def run_scanner() -> None:
                 print("❌ สแกนไม่สำเร็จ: กล้องยังมองไม่เห็นกรอบสี่เหลี่ยมสีแดงรอบกระดาษ")
                 continue
 
-            print(f"⏳ เริ่มประมวลผลสัตว์ประเภท: {current_animal_type}...")
+            print(f"⏳ เริ่มประมวลผลสัตว์ประเภท: {selected_type}...")
             print("⏳ กำลังแยกตัวสัตว์ออกจากกระดาษ...")
             final_transparent_img = process_frame_to_transparent(frame, doc_cnt)
-            filename = save_processed_image(final_transparent_img, current_animal_type, output_dir=OUTPUT_DIR)
+            filename = save_processed_image(final_transparent_img, selected_type, output_dir=OUTPUT_DIR)
             print(f"✅ บันทึกสำเร็จที่: {filename}")
 
             try:
