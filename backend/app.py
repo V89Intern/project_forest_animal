@@ -458,7 +458,7 @@ def approve():
     final_path = ANIMATIONS_DIR / final_name
     shutil.move(str(RMBG_TEMP_FILE), str(final_path))
 
-    # Log to PostgreSQL
+    # Log to PostgreSQL. If DB write fails, rollback file move and return error.
     try:
         db_query(
             """
@@ -474,7 +474,11 @@ def approve():
             )
         )
     except Exception as exc:
-        print(f"[WARN] DB approve log skipped: {exc}", file=sys.stderr)
+        if final_path.exists():
+            shutil.move(str(final_path), str(RMBG_TEMP_FILE))
+        update_pipeline("READY_FOR_REVIEW", 100, "DB save failed. Please retry approve.")
+        print(f"[ERROR] DB approve insert failed: {exc}", file=sys.stderr)
+        return jsonify({"ok": False, "error": "Database insert failed. Please retry approve."}), 500
 
     update_pipeline("SYNCING", 100, "Approved and syncing creature to forest...")
     entity = {

@@ -64,7 +64,7 @@ export function LoginPage({ onLogin }) {
     try {
       const resp = await ForestAPI.login(pin);
       if (resp.ok && resp.data?.ok) {
-        const user = { name: resp.data.name, pin: resp.data.pin };
+        const user = { name: resp.data.name, token: resp.data.token };
         sessionStorage.setItem("forest_user", JSON.stringify(user));
         onLogin(user);
       } else {

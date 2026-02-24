@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 import jwt
-from flask import abort, jsonify, request
+from flask import abort, jsonify, make_response, request
 
 JWT_SECRET  = os.environ.get("JWT_SECRET", "change-me-in-production")
 JWT_ALG     = "HS256"
@@ -37,14 +37,14 @@ def _extract_payload() -> dict:
     """Extract and decode Bearer token from Authorization header."""
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
-        abort(jsonify({"ok": False, "error": "Missing Authorization header"}), 401)
+        abort(make_response(jsonify({"ok": False, "error": "Missing Authorization header"}), 401))
     token = auth.split(" ", 1)[1]
     try:
         return _decode_token(token)
     except jwt.ExpiredSignatureError:
-        abort(jsonify({"ok": False, "error": "Token expired"}), 401)
+        abort(make_response(jsonify({"ok": False, "error": "Token expired"}), 401))
     except jwt.InvalidTokenError:
-        abort(jsonify({"ok": False, "error": "Invalid token"}), 401)
+        abort(make_response(jsonify({"ok": False, "error": "Invalid token"}), 401))
 
 
 def require_customer_jwt(f):
