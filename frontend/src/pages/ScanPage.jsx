@@ -31,6 +31,17 @@ export function ScanPage() {
   const [progress, setProgress] = useState(0);
   const [statusMsg, setStatusMsg] = useState("");
   const [resultFilename, setResultFilename] = useState("");
+  const [formError, setFormError] = useState("");
+
+  function getValidationError() {
+    const drawer = (drawerName || "").trim();
+    const creature = (creatureName || "").trim();
+    const phone = (phoneNumber || "").replace(/\D/g, "");
+    if (drawer.length < 2) return "Please enter drawer name (at least 2 characters).";
+    if (creature.length < 2) return "Please enter creature name (at least 2 characters).";
+    if (phone.length < 9 || phone.length > 15) return "Please enter a valid phone number (9-15 digits).";
+    return "";
+  }
 
   /* ── Camera lifecycle ───────────────────────────── */
   const startCamera = useCallback(async () => {
@@ -114,6 +125,7 @@ export function ScanPage() {
   /* ── Retake ────────────────────────────────────── */
   function retake() {
     setCapturedImage(null);
+    setFormError("");
     setPhase("camera");
     if (cameraMode === "stream") {
       startCamera();
@@ -123,40 +135,71 @@ export function ScanPage() {
   /* ── Submit → capture_process + poll + approve ── */
   async function submitImage() {
     if (!capturedImage) return;
+    const validationError = getValidationError();
+    if (validationError) {
+      setFormError(validationError);
+      setStatusMsg(validationError);
+      return;
+    }
+    setFormError("");
     setPhase("processing");
     setProgress(10);
-    setStatusMsg("กำลังส่งรูปไปประมวลผล...");
+    setStatusMsg("Submitting to queue...");
 
     const captureResp = await ForestAPI.captureProcess({
       image_data: capturedImage,
       type: creatureType,
+      drawer_name: drawerName,
+      phone_number: phoneNumber,
+      requester_name: user?.name || "",
     });
     if (!captureResp.ok) {
-      setStatusMsg(captureResp.data?.error || "ส่งรูปไม่สำเร็จ");
+      setStatusMsg(captureResp.data?.error || "Submit failed");
       setTimeout(() => retake(), 2000);
       return;
     }
 
-    setProgress(30);
-    setStatusMsg("กำลังลบพื้นหลัง...");
+    const jobId = captureResp.data?.job_id;
+    if (!jobId) {
+      setStatusMsg("Queue job id is missing");
+      setTimeout(() => retake(), 2000);
+      return;
+    }
+
+    const qPos = Number(captureResp.data?.queue_position || 0);
+    const qTotal = Number(captureResp.data?.queue_total || 0);
+    if (qPos > 0 && qTotal > 0) {
+      setStatusMsg(`Queued: position ${qPos}/${qTotal}`);
+    } else {
+      setStatusMsg("Queued. Waiting for processing...");
+    }
 
     let resolved = false;
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 300; i++) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL));
       try {
-        const statusResp = await ForestAPI.getPipelineStatus({ wait: false, timeout: 1, since: 0 });
+        const statusResp = await ForestAPI.getQueueStatus(jobId);
         if (!statusResp.ok) continue;
+
         const d = statusResp.data || {};
-        const pct = Number(d.progress || 0);
-        setProgress(Math.max(30, pct));
-        setStatusMsg(d.message || "กำลังประมวลผล...");
+        const pct = Number(d.progress ?? 0);
+        setProgress(Math.max(10, pct));
+
+        const queuePos = Number(d.queue_position || 0);
+        const queueTotal = Number(d.queue_total || 0);
+        if (d.state === "QUEUED" && queuePos > 0) {
+          setStatusMsg(`Waiting in queue: ${queuePos}/${queueTotal || queuePos}`);
+        } else {
+          setStatusMsg(d.message || "Processing...");
+        }
 
         if (d.state === "READY_FOR_REVIEW") {
           const finalType = creatureType;
-
           setProgress(90);
-          setStatusMsg("กำลังบันทึกสัตว์เข้าป่า...");
+          setStatusMsg("Approving and spawning...");
+
           const approveResp = await ForestAPI.approve({
+            job_id: jobId,
             type: finalType,
             name: creatureName || `${finalType}_creature`,
             drawer_name: drawerName,
@@ -174,8 +217,8 @@ export function ScanPage() {
           break;
         }
 
-        if (d.state === "IDLE" && pct === 0 && i > 2) {
-          setStatusMsg(d.message || "การประมวลผลล้มเหลว");
+        if (d.state === "FAILED") {
+          setStatusMsg(d.error || d.message || "Processing failed");
           setTimeout(() => retake(), 2000);
           resolved = true;
           break;
@@ -186,12 +229,12 @@ export function ScanPage() {
     }
 
     if (!resolved) {
-      setStatusMsg("หมดเวลารอการประมวลผล");
+      setStatusMsg("Queue wait timed out");
       setTimeout(() => retake(), 2000);
     }
   }
 
-  /* ── Reset after success ────────────────────────── */
+  /* Reset after success */
   function scanAnother() {
     setCapturedImage(null);
     setDrawerName("");
@@ -201,6 +244,7 @@ export function ScanPage() {
     setResultFilename("");
     setProgress(0);
     setStatusMsg("");
+    setFormError("");
     setPhase("camera");
     if (cameraMode === "stream") {
       startCamera();
@@ -210,7 +254,7 @@ export function ScanPage() {
   /* ── Render ─────────────────────────────────────── */
   return (
     <div className="scan-page">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 0.5rem" }}>
+      <div className="scan-topbar">
         <a href="/" className="scan-back-link">← กลับ</a>
         <div className="user-bar">
           <span>👤</span>
@@ -276,7 +320,7 @@ export function ScanPage() {
               <input
                 type="text"
                 value={drawerName}
-                onChange={(e) => setDrawerName(e.target.value)}
+                onChange={(e) => { setDrawerName(e.target.value); setFormError(""); }}
                 placeholder="เช่น น้องมิว"
               />
             </div>
@@ -285,7 +329,7 @@ export function ScanPage() {
               <input
                 type="tel"
                 value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
+                onChange={(e) => { setPhoneNumber(e.target.value.replace(/\D/g, "")); setFormError(""); }}
                 placeholder="เช่น 0812345678"
               />
             </div>
@@ -295,7 +339,7 @@ export function ScanPage() {
                 <input
                   type="text"
                   value={creatureName}
-                  onChange={(e) => setCreatureName(e.target.value)}
+                  onChange={(e) => { setCreatureName(e.target.value); setFormError(""); }}
                   placeholder="เช่น นกอินทรี"
                 />
               </div>
@@ -309,11 +353,12 @@ export function ScanPage() {
               </div>
             </div>
 
+            {formError && <p className="scan-form-error">{formError}</p>}
             <div className="scan-review-actions">
               <button className="scan-btn secondary" onClick={retake}>
                 🔄 ถ่ายใหม่
               </button>
-              <button className="scan-btn primary" onClick={submitImage}>
+              <button className="scan-btn primary" onClick={submitImage} disabled={Boolean(getValidationError())}>
                 ✅ ส่ง
               </button>
             </div>
@@ -354,3 +399,6 @@ export function ScanPage() {
     </div>
   );
 }
+
+
+

@@ -9,7 +9,7 @@ import threading
 import time
 import sys
 import uuid
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 
@@ -71,6 +71,54 @@ forest_last_seen_ts: float = 0.0
 pipeline_version = 0
 pipeline_cond = threading.Condition(pipeline_lock)
 
+QUEUE_STATUS_ACTIVE = ("QUEUED", "CAPTURING", "PROCESSING", "READY_FOR_REVIEW", "SYNCING")
+queue_wakeup = threading.Event()
+
+
+def normalize_phone(value: str) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def queue_counts_and_position(job_id: Optional[str] = None) -> Tuple[int, Optional[int]]:
+    rows = db_query(
+        """
+        SELECT Job_ID
+        FROM Queue_Job
+        WHERE Status = ANY(%s)
+        ORDER BY Create_Timestamp ASC
+        """,
+        (list(QUEUE_STATUS_ACTIVE),),
+        fetch="all",
+    ) or []
+    total = len(rows)
+    if not job_id:
+        return total, None
+    for idx, row in enumerate(rows, start=1):
+        if row.get("job_id") == job_id:
+            return total, idx
+    return total, None
+
+
+def update_job_row(job_id: str, status: str, progress: int, message: str, **extra) -> None:
+    set_parts = ["Status = %s", "Progress = %s", "Message = %s", "Update_Timestamp = NOW()"]
+    params: List[object] = [status, progress, message]
+    field_map = {
+        "detected_type": "Detected_Type",
+        "preview_url": "Preview_Url",
+        "filename": "Filename",
+        "error": "Error_Message",
+    }
+    for key, col in field_map.items():
+        if key in extra:
+            set_parts.append(f"{col} = %s")
+            params.append(extra.get(key))
+    if status in {"CAPTURING", "PROCESSING"}:
+        set_parts.append("Start_Timestamp = COALESCE(Start_Timestamp, NOW())")
+    if status in {"DONE", "FAILED"}:
+        set_parts.append("Done_Timestamp = NOW()")
+    params.append(job_id)
+    db_query(f"UPDATE Queue_Job SET {', '.join(set_parts)} WHERE Job_ID = %s", tuple(params))
+
 
 def ensure_python_310() -> None:
     if sys.version_info[:2] < (3, 10):
@@ -119,12 +167,14 @@ def update_pipeline(state: str, progress: int, message: str, preview: Optional[s
         pipeline_cond.notify_all()
 
 
-def run_capture_process(image_data: Optional[str] = None, requested_type: Optional[str] = None) -> None:
+def process_capture_job(job_id: str, image_data: Optional[str], requested_type: Optional[str]) -> None:
     global latest_detected_type
     RMBG_DIR.mkdir(parents=True, exist_ok=True)
     ANIMATIONS_DIR.mkdir(parents=True, exist_ok=True)
     RMBG_TEMP_FILE.parent.mkdir(parents=True, exist_ok=True)
+    update_job_row(job_id, "CAPTURING", 20, "Capturing webcam frame with scanner_module...")
     update_pipeline("CAPTURING", 20, "Capturing webcam frame with scanner_module...")
+    update_job_row(job_id, "PROCESSING", 65, "Running warp + RMBG pipeline...")
     update_pipeline("PROCESSING", 65, "Running warp + RMBG pipeline...")
     try:
         if image_data:
@@ -138,7 +188,9 @@ def run_capture_process(image_data: Optional[str] = None, requested_type: Option
 
         if not result.get("ok"):
             latest_detected_type = None
-            update_pipeline("IDLE", 0, f"Processing failed: {result.get('error', 'unknown error')}")
+            error_msg = f"Processing failed: {result.get('error', 'unknown error')}"
+            update_job_row(job_id, "FAILED", 0, error_msg, error=error_msg)
+            update_pipeline("IDLE", 0, error_msg)
             return
 
         source_path = Path(result["path"])
@@ -148,15 +200,73 @@ def run_capture_process(image_data: Optional[str] = None, requested_type: Option
         shutil.copyfile(source_path, RMBG_DIR / archived_name)
         animal_type = result.get("type", "unknown")
         latest_detected_type = str(animal_type)
+        update_job_row(
+            job_id,
+            "READY_FOR_REVIEW",
+            100,
+            f"Preview ready for approval (selected type: {animal_type}).",
+            detected_type=latest_detected_type,
+            preview_url="/static/rmbg_temp.png",
+        )
         update_pipeline(
             "READY_FOR_REVIEW",
             100,
             f"Preview ready for approval (selected type: {animal_type}).",
             preview=RMBG_TEMP_FILE.name,
         )
+        # Wait until this job is approved/failed before taking next one.
+        while True:
+            row = db_query("SELECT Status FROM Queue_Job WHERE Job_ID = %s", (job_id,), fetch="one")
+            if not row:
+                break
+            if row["status"] != "READY_FOR_REVIEW":
+                break
+            queue_wakeup.wait(timeout=1)
+            queue_wakeup.clear()
     except Exception as exc:
         latest_detected_type = None
-        update_pipeline("IDLE", 0, f"Processing failed: {exc}")
+        error_msg = f"Processing failed: {exc}"
+        update_job_row(job_id, "FAILED", 0, error_msg, error=error_msg)
+        update_pipeline("IDLE", 0, error_msg)
+
+
+def queue_worker_loop() -> None:
+    while True:
+        try:
+            row = db_query(
+                """
+                UPDATE Queue_Job
+                SET Status = 'CAPTURING',
+                    Progress = 20,
+                    Message = 'Capturing webcam frame with scanner_module...',
+                    Start_Timestamp = COALESCE(Start_Timestamp, NOW()),
+                    Update_Timestamp = NOW()
+                WHERE Job_ID = (
+                    SELECT Job_ID
+                    FROM Queue_Job
+                    WHERE Status = 'QUEUED'
+                    ORDER BY Create_Timestamp ASC
+                    LIMIT 1
+                )
+                RETURNING Job_ID, Image_Path, Requested_Type
+                """,
+                fetch="one",
+            )
+            if not row:
+                queue_wakeup.wait(timeout=1)
+                queue_wakeup.clear()
+                continue
+            image_path = str(row.get("image_path") or "")
+            image_data = Path(image_path).read_text(encoding="utf-8") if image_path and Path(image_path).exists() else None
+            requested_type = row.get("requested_type")
+            process_capture_job(str(row["job_id"]), image_data, requested_type)
+        except Exception as exc:
+            print(f"[ERROR] queue worker crashed on loop: {exc}", file=sys.stderr)
+            time.sleep(1)
+
+
+queue_worker = threading.Thread(target=queue_worker_loop, daemon=True, name="capture-queue-worker")
+queue_worker.start()
 
 
 @app.after_request
@@ -214,6 +324,21 @@ def latest_animals():
 
 @app.get("/api/pipeline_status")
 def pipeline_status():
+    queue_total, _ = queue_counts_and_position(None)
+    current_row = db_query(
+        """
+        SELECT Job_ID
+        FROM Queue_Job
+        WHERE Status = ANY(%s)
+        ORDER BY Create_Timestamp ASC
+        LIMIT 1
+        """,
+        (["CAPTURING", "PROCESSING", "READY_FOR_REVIEW", "SYNCING"],),
+        fetch="one",
+    )
+    queue_current = current_row["job_id"] if current_row else None
+    queue_waiting_row = db_query("SELECT COUNT(*) AS cnt FROM Queue_Job WHERE Status = 'QUEUED'", fetch="one")
+    queue_waiting = int(queue_waiting_row["cnt"]) if queue_waiting_row else 0
     with pipeline_lock:
         wait = request.args.get("wait") == "1"
         timeout = min(max(float(request.args.get("timeout", 20)), 1), 30)
@@ -232,6 +357,9 @@ def pipeline_status():
                 "detected_type": latest_detected_type,
                 "active_entities": active_count,
                 "active_entities_source": "forest" if forest_online else "backend",
+                "queue_total": queue_total,
+                "queue_waiting": queue_waiting,
+                "queue_current_job_id": queue_current,
                 "version": pipeline_version,
             }
         )
@@ -239,23 +367,136 @@ def pipeline_status():
 
 @app.post("/api/capture_process")
 def capture_process():
-    with pipeline_lock:
-        if pipeline_state in {"CAPTURING", "PROCESSING", "SYNCING"}:
-            return jsonify({"ok": False, "error": "Pipeline is busy."}), 409
-
     data = request.get_json(silent=True) or {}
     image_data = data.get("image_data")
+    drawer_name = str(data.get("drawer_name", "")).strip()
+    phone_number = normalize_phone(data.get("phone_number", ""))
+    requester_name = str(data.get("requester_name", "")).strip()
     requested_type_raw = str(data.get("type", "")).strip().lower()
     requested_type = requested_type_raw if requested_type_raw in VALID_TYPES else None
     if requested_type_raw and requested_type is None:
         return jsonify({"ok": False, "error": "type must be sky, ground, or water"}), 400
-    thread = threading.Thread(
-        target=run_capture_process,
-        kwargs={"image_data": image_data, "requested_type": requested_type},
-        daemon=True,
+    if not image_data:
+        return jsonify({"ok": False, "error": "image_data is required"}), 400
+    if len(drawer_name) < 2:
+        return jsonify({"ok": False, "error": "drawer_name must be at least 2 characters"}), 400
+    if len(phone_number) < 9 or len(phone_number) > 15:
+        return jsonify({"ok": False, "error": "phone_number must be 9-15 digits"}), 400
+    if not requester_name:
+        requester_name = drawer_name
+
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    queue_payload_dir = OUTPUTS_DIR / "queue_jobs"
+    queue_payload_dir.mkdir(parents=True, exist_ok=True)
+    image_path = queue_payload_dir / f"{job_id}.txt"
+    image_path.write_text(image_data, encoding="utf-8")
+
+    db_query(
+        """
+        INSERT INTO Queue_Job
+            (Job_ID, Status, Requested_Type, Progress, Message, Drawer_Name, Phone_Number, Requester_Name, Image_Path)
+        VALUES (%s, 'QUEUED', %s, 0, 'Queued for processing.', %s, %s, %s, %s)
+        """,
+        (job_id, requested_type, drawer_name, phone_number, requester_name, str(image_path)),
     )
-    thread.start()
-    return jsonify({"ok": True, "message": "Capture and process started."})
+    queue_total, queue_position = queue_counts_and_position(job_id)
+    queue_wakeup.set()
+    return jsonify(
+        {
+            "ok": True,
+            "message": "Capture queued.",
+            "job_id": job_id,
+            "queue_position": queue_position,
+            "queue_total": queue_total,
+        }
+    )
+
+
+@app.get("/api/queue_status/<job_id>")
+def queue_status(job_id: str):
+    job = db_query(
+        """
+        SELECT Job_ID, Status, Progress, Message, Requested_Type, Drawer_Name, Phone_Number, Requester_Name,
+               Detected_Type, Preview_Url, Filename, Error_Message, Create_Timestamp, Update_Timestamp
+        FROM Queue_Job
+        WHERE Job_ID = %s
+        """,
+        (job_id,),
+        fetch="one",
+    )
+    if not job:
+        return jsonify({"ok": False, "error": "Job not found"}), 404
+    queue_total, queue_position = queue_counts_and_position(job_id)
+    return jsonify(
+        {
+            "ok": True,
+            "job_id": job["job_id"],
+            "state": job["status"],
+            "progress": job["progress"],
+            "message": job["message"],
+            "queue_position": queue_position,
+            "queue_total": queue_total,
+            "detected_type": job["detected_type"],
+            "preview_url": job["preview_url"],
+            "filename": job["filename"],
+            "error": job["error_message"],
+            "drawer_name": job["drawer_name"],
+            "phone_number": job["phone_number"],
+            "requester_name": job["requester_name"],
+        }
+    )
+
+
+@app.get("/api/queue_jobs")
+@require_customer_jwt
+def queue_jobs():
+    limit = min(max(int(request.args.get("limit", 200)), 1), 500)
+    status = str(request.args.get("status", "")).strip().upper()
+    if status:
+        rows = db_query(
+            """
+            SELECT Job_ID, Status, Progress, Message, Requested_Type, Drawer_Name, Phone_Number, Requester_Name,
+                   Detected_Type, Preview_Url, Filename, Error_Message, Create_Timestamp, Update_Timestamp
+            FROM Queue_Job
+            WHERE Status = %s
+            ORDER BY Create_Timestamp DESC
+            LIMIT %s
+            """,
+            (status, limit),
+            fetch="all",
+        ) or []
+    else:
+        rows = db_query(
+            """
+            SELECT Job_ID, Status, Progress, Message, Requested_Type, Drawer_Name, Phone_Number, Requester_Name,
+                   Detected_Type, Preview_Url, Filename, Error_Message, Create_Timestamp, Update_Timestamp
+            FROM Queue_Job
+            ORDER BY Create_Timestamp DESC
+            LIMIT %s
+            """,
+            (limit,),
+            fetch="all",
+        ) or []
+
+    active_rows = db_query(
+        """
+        SELECT Job_ID
+        FROM Queue_Job
+        WHERE Status = ANY(%s)
+        ORDER BY Create_Timestamp ASC
+        """,
+        (list(QUEUE_STATUS_ACTIVE),),
+        fetch="all",
+    ) or []
+    pos_map = {row["job_id"]: idx for idx, row in enumerate(active_rows, start=1)}
+    queue_total = len(active_rows)
+    items = []
+    for row in rows:
+        item = dict(row)
+        item["queue_position"] = pos_map.get(item["job_id"])
+        item["queue_total"] = queue_total
+        items.append(item)
+    return jsonify({"ok": True, "count": len(items), "items": items})
 
 
 # ─── Auth — Customer ────────────────────────────────────────────────────────
@@ -443,12 +684,42 @@ def spawn():
 @app.post("/api/approve")
 def approve():
     data = request.get_json(silent=True) or {}
+    job_id = str(data.get("job_id", "")).strip()
     creature_type = str(data.get("type", "ground")).lower()
     creature_name = str(data.get("name", "")).strip() or f"{creature_type}_creature"
     drawer_name = str(data.get("drawer_name", "")).strip()
-    phone_number = str(data.get("phone_number", "")).strip()
+    phone_number = normalize_phone(data.get("phone_number", ""))
     if creature_type not in VALID_TYPES:
         return jsonify({"ok": False, "error": "type must be sky, ground, or water"}), 400
+    if len(drawer_name) < 2:
+        return jsonify({"ok": False, "error": "drawer_name must be at least 2 characters"}), 400
+    if len(phone_number) < 9 or len(phone_number) > 15:
+        return jsonify({"ok": False, "error": "phone_number must be 9-15 digits"}), 400
+    if len(creature_name.strip()) < 2:
+        return jsonify({"ok": False, "error": "name must be at least 2 characters"}), 400
+    if job_id:
+        job = db_query(
+            "SELECT Job_ID, Status, Drawer_Name, Phone_Number FROM Queue_Job WHERE Job_ID = %s",
+            (job_id,),
+            fetch="one",
+        )
+    else:
+        job = db_query(
+            """
+            SELECT Job_ID, Status, Drawer_Name, Phone_Number
+            FROM Queue_Job
+            WHERE Status = 'READY_FOR_REVIEW'
+            ORDER BY Create_Timestamp ASC
+            LIMIT 1
+            """,
+            fetch="one",
+        )
+    if not job:
+        return jsonify({"ok": False, "error": "No job waiting for approval."}), 409
+    target_job_id = str(job["job_id"])
+    if job["status"] != "READY_FOR_REVIEW":
+        total, position = queue_counts_and_position(target_job_id)
+        return jsonify({"ok": False, "error": "Job is not ready for approval.", "queue_position": position, "queue_total": total}), 409
     if not RMBG_TEMP_FILE.exists():
         return jsonify({"ok": False, "error": "No temp file to approve."}), 404
 
@@ -476,9 +747,19 @@ def approve():
     except Exception as exc:
         if final_path.exists():
             shutil.move(str(final_path), str(RMBG_TEMP_FILE))
+        update_job_row(target_job_id, "READY_FOR_REVIEW", 100, "DB save failed. Please retry approve.", error=str(exc))
         update_pipeline("READY_FOR_REVIEW", 100, "DB save failed. Please retry approve.")
         print(f"[ERROR] DB approve insert failed: {exc}", file=sys.stderr)
         return jsonify({"ok": False, "error": "Database insert failed. Please retry approve."}), 500
+
+    update_job_row(
+        target_job_id,
+        "DONE",
+        100,
+        f"Approved: {final_name}",
+        filename=final_name,
+    )
+    queue_wakeup.set()
 
     update_pipeline("SYNCING", 100, "Approved and syncing creature to forest...")
     entity = {

@@ -50,3 +50,27 @@ INSERT INTO Customer (PIN, Name, Role_ID) VALUES
   ('294017', 'Tong',   1),
   ('346708', 'Naming', 1)
 ON CONFLICT (PIN) DO NOTHING;
+
+-- Queue_Job (persistent upload/processing queue)
+CREATE TABLE IF NOT EXISTS Queue_Job (
+  Job_ID            VARCHAR(32)   PRIMARY KEY,
+  Status            VARCHAR(24)   NOT NULL,
+  Requested_Type    VARCHAR(10),
+  Progress          INT           NOT NULL DEFAULT 0,
+  Message           TEXT          NOT NULL DEFAULT '',
+  Drawer_Name       VARCHAR(200),
+  Phone_Number      VARCHAR(20),
+  Requester_Name    VARCHAR(200),
+  Image_Path        TEXT          NOT NULL,
+  Detected_Type     VARCHAR(10),
+  Preview_Url       TEXT,
+  Filename          TEXT,
+  Error_Message     TEXT,
+  Create_Timestamp  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  Update_Timestamp  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  Start_Timestamp   TIMESTAMPTZ,
+  Done_Timestamp    TIMESTAMPTZ,
+  CONSTRAINT queue_job_status_check CHECK (Status IN ('QUEUED', 'CAPTURING', 'PROCESSING', 'READY_FOR_REVIEW', 'SYNCING', 'DONE', 'FAILED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_queue_job_status_created ON Queue_Job(Status, Create_Timestamp);

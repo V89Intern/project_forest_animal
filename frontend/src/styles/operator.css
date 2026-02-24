@@ -1,10 +1,46 @@
+/* Scope scrollbar styling only to operator page scroll areas */
+.db-main,
+.db-tabs,
+.db-table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 150, 190, 0.65) rgba(255, 255, 255, 0.08);
+}
+
+.db-main::-webkit-scrollbar,
+.db-tabs::-webkit-scrollbar,
+.db-table-wrap::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.db-main::-webkit-scrollbar-track,
+.db-tabs::-webkit-scrollbar-track,
+.db-table-wrap::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.db-main::-webkit-scrollbar-thumb,
+.db-tabs::-webkit-scrollbar-thumb,
+.db-table-wrap::-webkit-scrollbar-thumb {
+  background: rgba(120, 150, 190, 0.65);
+  border-radius: 10px;
+}
+
+.db-main::-webkit-scrollbar-thumb:hover,
+.db-tabs::-webkit-scrollbar-thumb:hover,
+.db-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 170, 210, 0.8);
+}
 /* ── Dashboard Shell ───────────────────────────────────────────────────────── */
 .db-root {
-  min-height: 100vh;
+  height: 100vh;
   background: #080f1e;
   color: #e2eaf8;
   font-family: "Inter", system-ui, sans-serif;
   font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* ── Header ────────────────────────────────────────────────────────────────── */
@@ -141,10 +177,13 @@
 
 /* ── Main content ──────────────────────────────────────────────────────────── */
 .db-main {
+  flex: 1;
   padding: 20px 24px 40px;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  overflow-y: scroll;
+  overflow-x: hidden;
 }
 
 .db-loading {

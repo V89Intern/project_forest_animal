@@ -115,6 +115,7 @@ export function OperatorPage() {
 
   const [pictures, setPictures] = useState([]);
   const [animals, setAnimals] = useState([]);
+  const [queueJobs, setQueueJobs] = useState([]);
   const [pipeline, setPipeline] = useState({ state: "IDLE", active_entities: 0, message: "" });
   const [loading, setLoading] = useState(true);
   const [searchPhone, setSearchPhone] = useState("");
@@ -127,13 +128,15 @@ export function OperatorPage() {
   // ── Fetch all data ────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [picRes, animalRes, pipeRes] = await Promise.all([
+    const [picRes, animalRes, pipeRes, queueRes] = await Promise.all([
       apiFetch("/api/pictures"),
       ForestAPI.getLatestAnimals(),
-      ForestAPI.getPipelineStatus({ wait: false })
+      ForestAPI.getPipelineStatus({ wait: false }),
+      apiFetch("/api/queue_jobs?limit=200")
     ]);
     if (picRes.ok && Array.isArray(picRes.data?.pictures)) setPictures(picRes.data.pictures);
     if (animalRes.ok && Array.isArray(animalRes.data?.items)) setAnimals(animalRes.data.items);
+    if (queueRes.ok && Array.isArray(queueRes.data?.items)) setQueueJobs(queueRes.data.items);
     if (pipeRes.ok) setPipeline(pipeRes.data || {});
     setSelectedAnimals(new Set());
     setLoading(false);
@@ -158,6 +161,9 @@ export function OperatorPage() {
     return d.toDateString() === new Date().toDateString();
   }).length;
   const activeCreatures = pipeline.active_entities ?? 0;
+  const queueTotal = pipeline.queue_total ?? 0;
+  const queueInProgress = queueJobs.filter((j) => ["CAPTURING", "PROCESSING", "READY_FOR_REVIEW", "SYNCING"].includes(j.status)).length;
+  const queueWaiting = queueJobs.filter((j) => j.status === "QUEUED").length;
   const custCount = pictures.filter((p) => p.uploader_type === "CUSTOMER").length;
   const userCount = pictures.filter((p) => p.uploader_type === "USER").length;
 
@@ -180,6 +186,14 @@ export function OperatorPage() {
     return phoneOk && ownerOk;
   });
   const filteredAnimals = animals.filter((a) => filterType === "all" || a.type === filterType);
+  const queueJobsSorted = [...queueJobs].sort((a, b) => {
+    const aActive = Number.isFinite(Number(a.queue_position)) ? 0 : 1;
+    const bActive = Number.isFinite(Number(b.queue_position)) ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    if (!aActive && !bActive) return Number(a.queue_position) - Number(b.queue_position);
+    return new Date(b.update_timestamp || 0).getTime() - new Date(a.update_timestamp || 0).getTime();
+  });
+  const queueTop5 = queueJobsSorted.filter((j) => Number.isFinite(Number(j.queue_position))).slice(0, 5);
 
   // ── Delete helpers ────────────────────────────────────────────────────────
   const toggleSelect = useCallback((fn) => {
@@ -253,7 +267,8 @@ export function OperatorPage() {
         {[
           { id: "overview", label: "📊 Overview" },
           { id: "gallery", label: "🖼️ Picture Gallery" },
-          { id: "animals", label: "🦁 Forest Animals" }
+          { id: "animals", label: "🦁 Forest Animals" },
+          { id: "queue", label: "🧾 Queue Jobs" }
         ].map((t) => (
           <button
             key={t.id}
@@ -278,6 +293,9 @@ export function OperatorPage() {
               <StatCard icon="📅" value={todayPics} label="Uploaded Today" color="emerald" />
               <StatCard icon="📱" value={uniquePhones} label="Unique Phone Numbers" color="violet" />
               <StatCard icon="🦊" value={activeCreatures} label="Live Creatures in Forest" color="amber" />
+              <StatCard icon="🧾" value={queueTotal} label="Queue Total" color="cyan" />
+              <StatCard icon="⚙️" value={queueInProgress} label="Queue In Progress" color="amber" />
+              <StatCard icon="⏳" value={queueWaiting} label="Queue Waiting" color="violet" />
             </div>
 
             {/* Charts */}
@@ -314,6 +332,39 @@ export function OperatorPage() {
                 ))}
                 <div className="db-pipeline-msg">{pipeline.message || "—"}</div>
               </div>
+            </Card>
+
+            <Card title="🧾 Queue Order (Top 5)" className="db-card--full">
+              {queueTop5.length === 0 ? (
+                <div className="db-empty">No active queue</div>
+              ) : (
+                <div className="db-table-wrap">
+                  <table className="db-table">
+                    <thead>
+                      <tr>
+                        <th>Position</th>
+                        <th>Job ID</th>
+                        <th>Status</th>
+                        <th>Requester</th>
+                        <th>Phone</th>
+                        <th>Progress</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {queueTop5.map((j) => (
+                        <tr key={j.job_id}>
+                          <td>{`${j.queue_position}/${j.queue_total}`}</td>
+                          <td className="db-table__id">{j.job_id}</td>
+                          <td>{j.status}</td>
+                          <td>{j.requester_name || j.drawer_name || "-"}</td>
+                          <td>{j.phone_number || "-"}</td>
+                          <td>{Number(j.progress || 0)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </Card>
 
             {/* Recent uploads */}
@@ -430,6 +481,47 @@ export function OperatorPage() {
               {filteredAnimals.length === 0 && <div className="db-empty">ไม่มีสัตว์ในตาราง</div>}
             </div>
           </>
+        )}
+
+        {activeTab === "queue" && !loading && (
+          <Card title="🧾 Queue Jobs" className="db-card--full">
+            {queueJobsSorted.length === 0 ? (
+              <div className="db-empty">No queue jobs</div>
+            ) : (
+              <div className="db-table-wrap">
+                <table className="db-table">
+                  <thead>
+                    <tr>
+                      <th>Job ID</th>
+                      <th>Status</th>
+                      <th>Queue</th>
+                      <th>Type</th>
+                      <th>Requester</th>
+                      <th>Phone</th>
+                      <th>Progress</th>
+                      <th>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {queueJobsSorted.map((j) => (
+                      <tr key={j.job_id}>
+                        <td className="db-table__id">{j.job_id}</td>
+                        <td>{j.status}</td>
+                        <td>{j.queue_position ? `${j.queue_position}/${j.queue_total}` : "-"}</td>
+                        <td>{j.requested_type || "-"}</td>
+                        <td>{j.requester_name || j.drawer_name || "-"}</td>
+                        <td>{j.phone_number || "-"}</td>
+                        <td>{Number(j.progress || 0)}%</td>
+                        <td className="db-table__date">
+                          {j.update_timestamp ? new Date(j.update_timestamp).toLocaleString("th-TH") : "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
         )}
       </main>
     </div>

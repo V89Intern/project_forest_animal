@@ -50,6 +50,10 @@ export const ForestAPI = {
     });
   },
 
+  getQueueStatus(jobId) {
+    return request(`/api/queue_status/${encodeURIComponent(jobId)}`, { cache: "no-store" });
+  },
+
   approve(payload = {}) {
     return request("/api/approve", {
       method: "POST",
