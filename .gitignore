@@ -16,7 +16,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-my-app/
+my-app/node_modules/
 # Runtime artifacts
 outputs/
 static/animations/
