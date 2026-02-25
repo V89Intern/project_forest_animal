@@ -2,14 +2,11 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 // https://vite.dev/config/
+// ⚡ API_BASE hardcode ที่นี่ที่เดียว — ต้องการเปลี่ยน IP แก้ตรงนี้
 export default defineConfig({
   plugins: [vue()],
   define: {
-    'import.meta.env.VITE_API_BASE': JSON.stringify(
-      process.env.VITE_API_BASE !== undefined
-        ? process.env.VITE_API_BASE
-        : 'http://192.168.1.4:5000'
-    ),
+    'import.meta.env.VITE_API_BASE': JSON.stringify('http://192.168.1.6:5000'),
   },
   server: {
     port: 89,

@@ -1,22 +1,4 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: dmf-db
-    environment:
-      POSTGRES_DB:       forest_db
-      POSTGRES_USER:     forest_user
-      POSTGRES_PASSWORD: forest_pass
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U forest_user -d forest_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-
   backend:
     build:
       context: .
@@ -25,29 +7,17 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - FLASK_DEBUG=0
-      - DATABASE_URL=postgresql://forest_user:forest_pass@postgres:5432/forest_db
+      - DATABASE_URL=postgresql://V89adminsql:V89Sql@103.114.203.22:9989/Forent
       - JWT_SECRET=change-me-in-production
     volumes:
       - dmf_outputs:/app/outputs
       - dmf_static_runtime:/app/static
     ports:
-      - "5000:5000"
+      - "809:5000"
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-
-  frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    container_name: dmf-frontend
-    depends_on:
-      - backend
-    ports:
-      - "5173:80"
-    restart: unless-stopped
-
   myapp:
     build:
       context: .
@@ -58,7 +28,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "5174:80"
+      - "3128:89"
     restart: unless-stopped
 
 volumes:

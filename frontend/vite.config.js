@@ -8,11 +8,11 @@ export default defineConfig({
     host: true,
     port: 5173,
     proxy: {
-      "/api": "http://127.0.0.1:5000",
-      "/outputs": "http://127.0.0.1:5000",
-      "/static/animations": "http://127.0.0.1:5000",
-      "/static/rmbg_temp.png": "http://127.0.0.1:5000",
-      "/static/forest_ambience.mp3": "http://127.0.0.1:5000"
+      "/api":                       { target: "http://192.168.1.6:5000", changeOrigin: true },
+      "/outputs":                   { target: "http://192.168.1.6:5000", changeOrigin: true },
+      "/static/animations":         { target: "http://192.168.1.6:5000", changeOrigin: true },
+      "/static/rmbg_temp.png":      { target: "http://192.168.1.6:5000", changeOrigin: true },
+      "/static/forest_ambience.mp3":{ target: "http://192.168.1.6:5000", changeOrigin: true }
     }
   },
   build: {

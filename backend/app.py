@@ -1002,6 +1002,71 @@ def gallery():
     return pictures()
 
 
+UPLOADS_DIR = STATIC_DIR / "uploads"
+
+
+@app.post("/api/register")
+def register_with_image():
+    """
+    Register a user with name, phone, PDPA consent, and an uploaded image.
+    Accepts multipart/form-data:
+        - name:  display name (required)
+        - phone: phone number (required)
+        - pdpa:  'true' | '1' (required)
+        - image: image file (required)
+    Returns JSON with ok, message, and saved filename.
+    """
+    name  = request.form.get("name",  "").strip()
+    phone = request.form.get("phone", "").strip()
+    pdpa_raw = request.form.get("pdpa", "false").strip().lower()
+    pdpa = pdpa_raw in ("true", "1", "yes")
+
+    if not name:
+        return jsonify({"ok": False, "error": "ชื่อเป็นข้อมูลที่จำเป็น"}), 400
+    if not phone:
+        return jsonify({"ok": False, "error": "เบอร์โทรเป็นข้อมูลที่จำเป็น"}), 400
+    if not pdpa:
+        return jsonify({"ok": False, "error": "กรุณายอมรับ PDPA ก่อนดำเนินการ"}), 400
+
+    image_file = request.files.get("image")
+    if image_file is None or image_file.filename == "":
+        return jsonify({"ok": False, "error": "กรุณาอัปโหลดรูปภาพ"}), 400
+
+    # Validate file extension
+    allowed_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+    ext = Path(image_file.filename).suffix.lower()
+    if ext not in allowed_exts:
+        return jsonify({"ok": False, "error": f"ไฟล์ {ext} ไม่รองรับ (รองรับ JPG, PNG, GIF, WEBP)"}), 400
+
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    ts  = datetime.now().strftime("%Y%m%d_%H%M%S")
+    uid = str(uuid.uuid4())[:8]
+    saved_name = f"reg_{ts}_{uid}{ext}"
+    save_path  = UPLOADS_DIR / saved_name
+    image_file.save(str(save_path))
+
+    url_path = f"/static/uploads/{saved_name}"
+
+    try:
+        db_query(
+            """
+            INSERT INTO Picture_Electronic
+              (Url_Path, Phone_Number, Owner_Name, Uploader_ID, Uploader_Type)
+            VALUES (%s, %s, %s, %s, 'USER')
+            """,
+            (url_path, phone, name, 0),
+        )
+    except Exception as exc:
+        print(f"[WARN] DB register log skipped: {exc}", file=sys.stderr)
+
+    return jsonify({
+        "ok":      True,
+        "message": f"ลงทะเบียนสำเร็จ! ยินดีต้อนรับ {name}",
+        "filename": saved_name,
+        "url":     url_path,
+    }), 201
+
+
 @app.get("/api/download/<path:filename>")
 def download_animation(filename: str):
     """Download an animation image as an attachment."""
