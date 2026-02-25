@@ -501,10 +501,189 @@ export function initializeForestScene(config) {
   let pendingFocusHoldMs = 0;
   let focusReleaseTimer = null;
 
+  function toDisplayName(animalData) {
+    const rawOwner = String(animalData?.owner_name || "").trim();
+    if (rawOwner) return rawOwner;
+    const fallback = normalizeFilename(animalData?.filename || "").replace(/\.[^.]+$/, "");
+    return fallback || "Unknown";
+  }
+
+  function hashLabel(label) {
+    let h = 0;
+    for (let i = 0; i < label.length; i++) h = ((h << 5) - h + label.charCodeAt(i)) | 0;
+    return Math.abs(h);
+  }
+
+  function buildNameTagSprite(text) {
+    const label = String(text || "Unknown").slice(0, 24);
+    const candyThemes = [
+      { a: "#ffd6e8", b: "#ffc8a8", border: "#ffffff", text: "#6f2b5c" },
+      { a: "#d8f6ff", b: "#bce9ff", border: "#ffffff", text: "#1f4f73" },
+      { a: "#e6ffd8", b: "#ccf2b7", border: "#ffffff", text: "#2d5f2f" },
+      { a: "#fff3c4", b: "#ffe39c", border: "#ffffff", text: "#6b4c1e" },
+      { a: "#ece2ff", b: "#d7c4ff", border: "#ffffff", text: "#4d3b79" },
+    ];
+    const theme = candyThemes[hashLabel(label) % candyThemes.length];
+    const canvas = document.createElement("canvas");
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const fontSize = 14;
+    const padX = 11;
+    const padY = 7;
+    const iconSpace = 14;
+    const ctx = canvas.getContext("2d");
+    ctx.font = `600 ${fontSize}px Inter, sans-serif`;
+    const textWidth = Math.ceil(ctx.measureText(label).width);
+    const logicalWidth = textWidth + padX * 2 + iconSpace;
+    const logicalHeight = fontSize + padY * 2;
+    canvas.width = Math.ceil(logicalWidth * dpr);
+    canvas.height = Math.ceil(logicalHeight * dpr);
+
+    const paint = canvas.getContext("2d");
+    paint.scale(dpr, dpr);
+    paint.font = `600 ${fontSize}px Inter, sans-serif`;
+    paint.textBaseline = "middle";
+    const h = logicalHeight;
+    const w = logicalWidth;
+
+    // Candy badge.
+    const bg = paint.createLinearGradient(0, 0, w, h);
+    bg.addColorStop(0, theme.a);
+    bg.addColorStop(1, theme.b);
+    paint.fillStyle = bg;
+    paint.strokeStyle = "rgba(255,255,255,0.92)";
+    paint.lineWidth = 1.2;
+    paint.shadowColor = "rgba(38, 38, 80, 0.20)";
+    paint.shadowBlur = 6;
+    paint.beginPath();
+    paint.roundRect(0.5, 0.5, w - 1, h - 1, 10);
+    paint.fill();
+    paint.stroke();
+
+    // Top gloss.
+    paint.shadowBlur = 0;
+    paint.fillStyle = "rgba(255,255,255,0.33)";
+    paint.beginPath();
+    paint.roundRect(2, 2, w - 4, h * 0.42, 8);
+    paint.fill();
+
+    // Star icon.
+    const cy = h / 2;
+    const cx = padX + 5;
+    paint.fillStyle = "#fff7a8";
+    paint.strokeStyle = "rgba(255, 220, 80, 0.9)";
+    paint.lineWidth = 1;
+    paint.beginPath();
+    paint.moveTo(cx, cy - 4.2);
+    paint.lineTo(cx + 1.5, cy - 1.2);
+    paint.lineTo(cx + 4.8, cy - 0.8);
+    paint.lineTo(cx + 2.3, cy + 1.3);
+    paint.lineTo(cx + 3.1, cy + 4.5);
+    paint.lineTo(cx, cy + 2.7);
+    paint.lineTo(cx - 3.1, cy + 4.5);
+    paint.lineTo(cx - 2.3, cy + 1.3);
+    paint.lineTo(cx - 4.8, cy - 0.8);
+    paint.lineTo(cx - 1.5, cy - 1.2);
+    paint.closePath();
+    paint.fill();
+    paint.stroke();
+
+    paint.shadowBlur = 0;
+    paint.fillStyle = theme.text;
+    paint.fillText(label, padX + iconSpace, h / 2 + 0.2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.renderOrder = 20;
+    const baseHeight = 1.15;
+    const aspect = logicalWidth / Math.max(1, logicalHeight);
+    sprite.scale.set(baseHeight * aspect, baseHeight, 1);
+    sprite.center.set(0.5, 0);
+    return sprite;
+  }
+
+  function buildCleanTextureFromImage(image) {
+    try {
+      const w = Number(image?.width || 0);
+      const h = Number(image?.height || 0);
+      if (!w || !h) return null;
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(image, 0, 0, w, h);
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const data = imgData.data;
+
+      // Estimate matte color from 4 corners (typical residual background area).
+      const sampleSize = Math.max(4, Math.floor(Math.min(w, h) * 0.06));
+      const corners = [
+        [0, 0],
+        [w - sampleSize, 0],
+        [0, h - sampleSize],
+        [w - sampleSize, h - sampleSize],
+      ];
+      let sr = 0, sg = 0, sb = 0, count = 0;
+      for (const [sx, sy] of corners) {
+        for (let y = sy; y < sy + sampleSize; y++) {
+          for (let x = sx; x < sx + sampleSize; x++) {
+            const i = (y * w + x) * 4;
+            sr += data[i];
+            sg += data[i + 1];
+            sb += data[i + 2];
+            count += 1;
+          }
+        }
+      }
+      if (!count) return null;
+      const kr = sr / count;
+      const kg = sg / count;
+      const kb = sb / count;
+
+      const hard = 20;
+      const soft = 58;
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3];
+        if (a === 0) continue;
+        const dr = data[i] - kr;
+        const dg = data[i + 1] - kg;
+        const db = data[i + 2] - kb;
+        const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+        if (dist <= hard) {
+          data[i + 3] = 0;
+        } else if (dist < soft) {
+          const t = (dist - hard) / (soft - hard);
+          data[i + 3] = Math.min(data[i + 3], Math.round(255 * t));
+        }
+      }
+
+      ctx.putImageData(imgData, 0, 0);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.needsUpdate = true;
+      tex.generateMipmaps = false;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      return tex;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function createAnimalSprite(animalData) {
     loader.load(api.assetUrl(animalData.url), (texture) => {
       if (destroyed) return;
-      const mat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+      const processed = buildCleanTextureFromImage(texture.image);
+      const mat = new THREE.SpriteMaterial({
+        map: processed || texture,
+        transparent: true,
+        alphaTest: 0.05,
+      });
       const sprite = new THREE.Sprite(mat);
       sprite.scale.set(0, 0, 0);
 
@@ -532,6 +711,10 @@ export function initializeForestScene(config) {
         targetScale: 5,
         filename: animalData.filename
       };
+      const nameTag = buildNameTagSprite(toDisplayName(animalData));
+      nameTag.position.set(x, y + 4.8, z);
+      scene.add(nameTag);
+      sprite.userData.nameTag = nameTag;
       scene.add(sprite);
       renderedAnimals.add(animalData.filename);
       onCountChange(spawnedAnimals.size);
@@ -689,18 +872,55 @@ export function initializeForestScene(config) {
   controls.minDistance = 10;
   controls.maxDistance = 400;
   controls.maxPolarAngle = Math.PI / 2.05;
+  const defaultCameraPosition = new THREE.Vector3(0, 30, 80);
+  const defaultControlTarget = new THREE.Vector3(0, 8, 0);
+  const defaultCameraZoom = camera.zoom;
+  camera.position.copy(defaultCameraPosition);
+  controls.target.copy(defaultControlTarget);
+  camera.zoom = defaultCameraZoom;
+  camera.updateProjectionMatrix();
+  controls.update();
+  controls.saveState();
+  let focusActive = false;
+  let freeCameraPosition = camera.position.clone();
+  let freeControlTarget = controls.target.clone();
+  let freeAutoRotate = controls.autoRotate;
 
-  function releaseFocus() {
+  function releaseFocus(options = {}) {
+    const toInitial = Boolean(options.toInitial);
     if (focusReleaseTimer) {
       clearTimeout(focusReleaseTimer);
       focusReleaseTimer = null;
     }
     pendingFocusFilename = "";
     pendingFocusHoldMs = 0;
-    controls.autoRotate = true;
+    if (toInitial) {
+      camera.position.copy(defaultCameraPosition);
+      controls.target.copy(defaultControlTarget);
+      camera.zoom = defaultCameraZoom;
+      camera.updateProjectionMatrix();
+      controls.autoRotate = true;
+    } else if (focusActive) {
+      camera.position.copy(freeCameraPosition);
+      controls.target.copy(freeControlTarget);
+      controls.autoRotate = false;
+    } else {
+      camera.position.copy(defaultCameraPosition);
+      controls.target.copy(defaultControlTarget);
+      controls.autoRotate = false;
+    }
+    controls.enablePan = true;
+    controls.enableRotate = true;
+    controls.enableZoom = true;
+    focusActive = false;
     controls.update();
     onFocusModeChange(false);
     onStatusChange("Free camera mode");
+  }
+
+  function resetToInitialCamera() {
+    releaseFocus({ toInitial: true });
+    onStatusChange("Initial camera view");
   }
 
   function focusOnAnimal(filename, options = {}) {
@@ -721,9 +941,18 @@ export function initializeForestScene(config) {
 
     const p = targetSprite.position.clone();
     const offset = new THREE.Vector3(0, 12, 26);
+    if (!focusActive) {
+      freeCameraPosition = camera.position.clone();
+      freeControlTarget = controls.target.clone();
+      freeAutoRotate = controls.autoRotate;
+    }
     camera.position.copy(p.clone().add(offset));
     controls.target.copy(p);
+    controls.enablePan = true;
+    controls.enableRotate = true;
+    controls.enableZoom = true;
     controls.autoRotate = false;
+    focusActive = true;
     controls.update();
     pendingFocusFilename = "";
     pendingFocusHoldMs = 0;
@@ -802,6 +1031,11 @@ export function initializeForestScene(config) {
         } else {
           obj.position.y = 2.5 + Math.abs(Math.sin(now * 5 + off)) * 0.8;
         }
+        const nameTag = obj.userData.nameTag;
+        if (nameTag?.isSprite) {
+          nameTag.position.set(obj.position.x, obj.position.y + 4.8, obj.position.z);
+          nameTag.material.opacity = Math.min(1, Math.max(0, obj.scale.x / 2));
+        }
       }
     });
 
@@ -818,8 +1052,12 @@ export function initializeForestScene(config) {
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
   }
+  function handleKeydown(event) {
+    if (event.key === "Escape") releaseFocus();
+  }
 
   window.addEventListener("resize", handleResize);
+  window.addEventListener("keydown", handleKeydown);
   applyTimeMode("morning");
   animate();
   listenForSpawn();
@@ -831,6 +1069,7 @@ export function initializeForestScene(config) {
     applyWeatherMode,
     focusOnAnimal,
     releaseFocus,
+    resetToInitialCamera,
     cleanup: () => {
       destroyed = true;
       clearInterval(spawnInterval);
@@ -838,6 +1077,7 @@ export function initializeForestScene(config) {
       if (focusReleaseTimer) clearTimeout(focusReleaseTimer);
       cancelAnimationFrame(rafId);
       window.removeEventListener("resize", handleResize);
+      window.removeEventListener("keydown", handleKeydown);
       controls.dispose();
       renderer.dispose();
       if (renderer.domElement?.parentNode === mountEl)

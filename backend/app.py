@@ -762,7 +762,8 @@ def approve():
 
     ANIMATIONS_DIR.mkdir(parents=True, exist_ok=True)
     entity_uuid = str(uuid.uuid4())
-    final_name = f"{creature_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    # Include milliseconds + short uuid to avoid filename collisions in the same second.
+    final_name = f"{creature_type}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]}_{uuid.uuid4().hex[:6]}.png"
     final_path = ANIMATIONS_DIR / final_name
     shutil.move(str(RMBG_TEMP_FILE), str(final_path))
 

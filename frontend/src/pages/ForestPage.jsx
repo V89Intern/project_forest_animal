@@ -160,6 +160,8 @@ export function ForestPage() {
   const [forestLoadError, setForestLoadError] = useState("");
   const [timeMode, setTimeMode] = useState("morning"); // "morning" | "night"
   const [weatherMode, setWeatherMode] = useState("sunny"); // "sunny" | "rain" | "snow"
+  const timeModeRef = useRef("morning");
+  const weatherModeRef = useRef("sunny");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [availableAnimals, setAvailableAnimals] = useState([]);
   const [selectedFocus, setSelectedFocus] = useState(normalizeFilename(focusFilename));
@@ -228,12 +230,25 @@ export function ForestPage() {
   const handleFocusCreature = useCallback((filename) => {
     const normalized = normalizeFilename(filename);
     if (!normalized) return;
+    if (selectedFocus === normalized) {
+      sceneRef.current?.releaseFocus?.();
+      setSelectedFocus("");
+      setIsFocusMode(false);
+      return;
+    }
     setSelectedFocus(normalized);
     sceneRef.current?.focusOnAnimal?.(normalized);
-  }, []);
+  }, [selectedFocus, isFocusMode]);
 
   const handleFreeCamera = useCallback(() => {
-    sceneRef.current?.releaseFocus?.();
+    sceneRef.current?.releaseFocus?.({ toInitial: true });
+    setSelectedFocus("");
+    setIsFocusMode(false);
+  }, []);
+
+  const handleInitialCamera = useCallback(() => {
+    sceneRef.current?.resetToInitialCamera?.();
+    setSelectedFocus("");
     setIsFocusMode(false);
   }, []);
 
@@ -249,12 +264,46 @@ export function ForestPage() {
   const handleTimeChange = useCallback((isNight) => {
     const mode = isNight ? "night" : "morning";
     setTimeMode(mode);
+    timeModeRef.current = mode;
     sceneRef.current?.applyTimeMode(mode);
   }, []);
 
   const handleWeatherChange = useCallback((mode) => {
     setWeatherMode(mode);
+    weatherModeRef.current = mode;
     sceneRef.current?.applyWeatherMode(mode);
+  }, []);
+
+  useEffect(() => {
+    timeModeRef.current = timeMode;
+  }, [timeMode]);
+
+  useEffect(() => {
+    weatherModeRef.current = weatherMode;
+  }, [weatherMode]);
+
+  useEffect(() => {
+    const weatherCycle = ["sunny", "rain", "snow"];
+    const weatherTimer = setInterval(() => {
+      const current = weatherModeRef.current;
+      const idx = weatherCycle.indexOf(current);
+      const next = weatherCycle[(idx >= 0 ? idx + 1 : 0) % weatherCycle.length];
+      setWeatherMode(next);
+      weatherModeRef.current = next;
+      sceneRef.current?.applyWeatherMode(next);
+    }, 5 * 60 * 1000);
+
+    const timeTimer = setInterval(() => {
+      const next = timeModeRef.current === "night" ? "morning" : "night";
+      setTimeMode(next);
+      timeModeRef.current = next;
+      sceneRef.current?.applyTimeMode(next);
+    }, 10 * 60 * 1000);
+
+    return () => {
+      clearInterval(weatherTimer);
+      clearInterval(timeTimer);
+    };
   }, []);
 
   const isNight = timeMode === "night";
@@ -347,14 +396,15 @@ export function ForestPage() {
 
         <div className="sidebar-section">
           <div className="section-heading">Creature Focus</div>
-          <button
-            className="focus-free-btn"
-            onClick={handleFreeCamera}
-            disabled={!isFocusMode}
-            title={isFocusMode ? "Exit focus mode" : "Already in free camera mode"}
-          >
-            Free Camera
-          </button>
+          <div className="focus-camera-row">
+            <button
+              className="focus-free-btn"
+              onClick={handleInitialCamera}
+              title="Back to first camera view"
+            >
+              Initial Camera
+            </button>
+          </div>
           <div className="focus-filters">
             <input
               className="focus-search"
@@ -389,9 +439,9 @@ export function ForestPage() {
                   key={a.filename}
                   className={`focus-item ${selectedFocus === a.filename ? "focus-item--active" : ""}`}
                   onClick={() => handleFocusCreature(a.filename)}
-                  title={a.filename}
+                  title={a.owner_name || a.phone_number || "Creature"}
                 >
-                  <span className="focus-item__name">{shortCreatureLabel(a.filename)}</span>
+                  <span className="focus-item__name">{a.owner_name || a.phone_number || "Creature"}</span>
                   <span className="focus-item__meta">{a.owner_name || a.phone_number || "-"}</span>
                   <span className={`focus-item__type focus-item__type--${a.type}`}>{a.type}</span>
                 </button>

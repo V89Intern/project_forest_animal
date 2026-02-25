@@ -465,6 +465,12 @@ body {
   gap: 6px;
 }
 
+.focus-camera-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
 .focus-free-btn {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.24);
@@ -472,7 +478,9 @@ body {
   color: var(--text-primary);
   border-radius: 9px;
   padding: 8px 10px;
-  font-size: 0.78rem;
+  font-size: 0.74rem;
+  white-space: normal;
+  min-width: 0;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
@@ -677,3 +685,4 @@ body {
     opacity: 1;
   }
 }
+
