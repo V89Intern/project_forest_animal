@@ -40,10 +40,10 @@
         <h2 class="section-title">เมนูผู้ใช้งาน</h2>
 
         <div v-if="activeView === 'menu'" class="option-grid">
-          <button class="option-card" @click="showRegister = true">
-            <div class="option-icon">📸</div>
-            <div class="option-title">ลงทะเบียนรูป</div>
-            <div class="option-sub">อัปโหลดรูปเพื่อเข้าระบบ</div>
+          <button class="option-card" @click="autoSearchMyImages">
+            <div class="option-icon">🖼️</div>
+            <div class="option-title">ดาวน์โหลดรูปของฉัน</div>
+            <div class="option-sub">ค้นหารูปจากเบอร์โทรที่ลงทะเบียน</div>
           </button>
         </div>
 
