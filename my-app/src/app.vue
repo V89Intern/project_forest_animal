@@ -21,9 +21,10 @@
         <div class="carousel-track-wrapper">
           <div class="carousel-track" ref="carouselTrack">
             <div v-for="(img, idx) in duplicatedLatest" :key="'lat-' + idx" class="carousel-card">
-              <img :src="apiBase + '/' + img.url_path" :alt="img.creature_name" class="carousel-img" loading="lazy" />
+              <img :src="apiBase + '/' + img.url_path" :alt="img.Owner_Name || img.owner_name" class="carousel-img"
+                loading="lazy" />
               <div class="carousel-label">
-                {{ img.creature_name || 'ไม่ระบุ' }}
+                {{ img.Owner_Name || img.owner_name || 'ไม่ระบุ' }}
               </div>
             </div>
           </div>
