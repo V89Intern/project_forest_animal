@@ -6,7 +6,7 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   define: {
-    'import.meta.env.VITE_API_BASE': JSON.stringify('http://192.168.1.6:5000'),
+    'import.meta.env.VITE_API_BASE': JSON.stringify('http://103.114.203.22:809'),
   },
   server: {
     port: 89,

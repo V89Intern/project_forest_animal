@@ -10,7 +10,7 @@
 
     <header :class="['header', { 'header-splash': isSplash, 'header-ready': !isSplash }]">
       <div class="logo">
-        <span class="logo-icon">✨</span> LOGO
+        <img src="/v89_logo.png" style="width: 100px; height: 100px;"> Magic Forest
       </div>
     </header>
 
@@ -172,10 +172,9 @@
                     <div class="card-time">
                       {{ item.upload_timestamp }}
                     </div>
-                    <button class="download-btn" :disabled="downloadingId === item.pe_id" @click="downloadImage(item)">
-                      <span v-if="downloadingId === item.pe_id" class="spinner spinner-dl"></span>
-                      <span v-else>⬇</span>
-                      {{ downloadingId === item.pe_id ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด' }}
+                    <button class="download-btn" @click="openBgPicker(item)">
+                      <span>⬇</span>
+                      ดาวน์โหลด
                     </button>
                   </div>
                 </div>
@@ -192,6 +191,14 @@
         </div>
       </Transition>
     </Teleport>
+
+    <!-- ========== Background Picker Modal ========== -->
+    <BackgroundPickerModal
+      v-if="showBgPicker && bgPickerItem"
+      :item="bgPickerItem"
+      :apiBase="apiBase"
+      @close="showBgPicker = false"
+    />
 
     <!-- ========== Option Entry Popup Modal ========== -->
     <Teleport to="body">
@@ -227,6 +234,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import RegisterView from './components/RegisterView.vue'
+import BackgroundPickerModal from './components/BackgroundPickerModal.vue'
 
 // ============================================================
 // API Base URL – กำหนดค่าจาก vite.config.js เท่านั้น
@@ -271,6 +279,8 @@ const uploadMessage = ref('')
 // Download / Search state
 // ============================================================
 const downloadingId = ref(null)
+const showBgPicker = ref(false)
+const bgPickerItem = ref(null)
 const isSplash = ref(true)
 const entries = ref([])
 const loading = ref(false)
@@ -285,7 +295,7 @@ const searchText = ref('')
 // ============================================================
 const duplicatedLatest = computed(() => {
   if (latestImages.value.length === 0) return []
-  return [...latestImages.value, ...latestImages.value]
+  return [...latestImages.value ]
 })
 
 // ============================================================
@@ -525,32 +535,11 @@ async function submitUpload() {
 }
 
 // ============================================================
-// Download – GET /api/download/<filename>
+// Background Picker – เปิด Modal เลือก Background ก่อน Download
 // ============================================================
-async function downloadImage(item) {
-  if (downloadingId.value) return
-  downloadingId.value = item.pe_id
-  try {
-    const filename = item.url_path.split('/').pop()
-    const url = `${apiBase}/api/download/${filename}`
-    const res = await authFetch(url)
-
-    if (!res.ok) throw new Error('Download failed')
-    const blob = await res.blob()
-    const blobUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = blobUrl
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(blobUrl)
-  } catch (err) {
-    console.error('Download error:', err)
-    alert('ดาวน์โหลดไม่สำเร็จ กรุณาลองใหม่อีกครั้ง')
-  } finally {
-    downloadingId.value = null
-  }
+function openBgPicker(item) {
+  bgPickerItem.value = item
+  showBgPicker.value = true
 }
 
 // ============================================================
@@ -642,59 +631,5 @@ onUnmounted(() => {
 })
 </script>
 
-<style>
-/* นำเข้า CSS จากไฟล์แยก */
-@import './app.css';
-
-/* ── Register overlay ── */
-.register-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 999;
-  background: #f4f6f9;
-  overflow-y: auto;
-}
-
-/* ── Divider row (หรือ) ── */
-.divider-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 4px 0;
-}
-
-.divider-line {
-  flex: 1;
-  height: 1px;
-  background: #d9e0ec;
-}
-
-.divider-text {
-  font-size: 0.82rem;
-  color: #999;
-  white-space: nowrap;
-}
-
-.register-entry-btn {
-  font-size: 0.95rem;
-}
-
-/* ── Slide-up transition ── */
-.slide-up-enter-active {
-  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
-}
-
-.slide-up-leave-active {
-  transition: transform 0.25s ease, opacity 0.2s ease;
-}
-
-.slide-up-enter-from {
-  transform: translateY(40px);
-  opacity: 0;
-}
-
-.slide-up-leave-to {
-  transform: translateY(20px);
-  opacity: 0;
-}
-</style>
+<style src="./app.css"></style>
+<style src="./app-shell.css"></style>

@@ -80,6 +80,24 @@ def normalize_phone(value: str) -> str:
     return "".join(ch for ch in str(value or "") if ch.isdigit())
 
 
+def find_user_by_phone(phone: str):
+    """Lookup latest user by normalized phone digits."""
+    normalized = normalize_phone(phone)
+    if len(normalized) != 10:
+        return None
+    return db_query(
+        """
+        SELECT User_ID, Role_ID, Phone_Number, Create_Timestamp
+        FROM Users
+        WHERE REGEXP_REPLACE(COALESCE(Phone_Number, ''), '\\D', '', 'g') = %s
+        ORDER BY Create_Timestamp DESC
+        LIMIT 1
+        """,
+        (normalized,),
+        fetch="one",
+    )
+
+
 def queue_counts_and_position(job_id: Optional[str] = None) -> Tuple[int, Optional[int]]:
     rows = db_query(
         """
@@ -364,7 +382,7 @@ def pipeline_status():
     queue_total, _ = queue_counts_and_position(None)
     current_row = db_query(
         """
-        SELECT Job_ID
+        SELECT Job_ID, Status, Progress, Requested_Type, Drawer_Name, Phone_Number, Requester_Name, Create_Timestamp, Update_Timestamp
         FROM Queue_Job
         WHERE Status = ANY(%s)
         ORDER BY Create_Timestamp ASC
@@ -373,7 +391,21 @@ def pipeline_status():
         (["CAPTURING", "PROCESSING", "READY_FOR_REVIEW", "SYNCING"],),
         fetch="one",
     )
-    queue_current = current_row["job_id"] if current_row else None
+    queue_current = None
+    queue_current_job_id = None
+    if current_row:
+        queue_current_job_id = current_row["job_id"]
+        queue_current = {
+            "job_id": current_row["job_id"],
+            "status": current_row["status"],
+            "progress": current_row["progress"],
+            "requested_type": current_row.get("requested_type"),
+            "drawer_name": current_row.get("drawer_name"),
+            "phone_number": current_row.get("phone_number"),
+            "requester_name": current_row.get("requester_name"),
+            "create_timestamp": current_row.get("create_timestamp"),
+            "update_timestamp": current_row.get("update_timestamp"),
+        }
     queue_waiting_row = db_query("SELECT COUNT(*) AS cnt FROM Queue_Job WHERE Status = 'QUEUED'", fetch="one")
     queue_waiting = int(queue_waiting_row["cnt"]) if queue_waiting_row else 0
     with pipeline_lock:
@@ -396,7 +428,8 @@ def pipeline_status():
                 "active_entities_source": "forest" if forest_online else "backend",
                 "queue_total": queue_total,
                 "queue_waiting": queue_waiting,
-                "queue_current_job_id": queue_current,
+                "queue_current_job_id": queue_current_job_id,
+                "queue_current": queue_current,
                 "version": pipeline_version,
             }
         )
@@ -573,13 +606,26 @@ def legacy_login():
 def user_register():
     """Register a new public user; return JWT."""
     data  = request.get_json(silent=True) or {}
-    phone = str(data.get("phone", "")).strip()
+    phone = normalize_phone(data.get("phone", ""))
     pdpa  = bool(data.get("pdpa", False))
 
     if not phone:
         return jsonify({"ok": False, "error": "phone is required"}), 400
+    if len(phone) != 10:
+        return jsonify({"ok": False, "error": "phone must be exactly 10 digits"}), 400
     if not pdpa:
         return jsonify({"ok": False, "error": "PDPA consent required"}), 400
+
+    existing_user = find_user_by_phone(phone)
+    if existing_user:
+        return jsonify(
+            {
+                "ok": False,
+                "error": "phone already registered",
+                "exists": True,
+                "user_id": existing_user["user_id"],
+            }
+        ), 409
 
     # role_id 3 = 'USER'
     # Generate a unique 3-digit User_ID (000-999)
@@ -615,14 +661,13 @@ def user_register():
 def user_login():
     """Return JWT for an existing user by phone number."""
     data  = request.get_json(silent=True) or {}
-    phone = str(data.get("phone", "")).strip()
+    phone = normalize_phone(data.get("phone", ""))
     if not phone:
         return jsonify({"ok": False, "error": "phone is required"}), 400
+    if len(phone) != 10:
+        return jsonify({"ok": False, "error": "phone must be exactly 10 digits"}), 400
 
-    row = db_query(
-        "SELECT User_ID, Role_ID FROM Users WHERE Phone_Number = %s ORDER BY Create_Timestamp DESC LIMIT 1",
-        (phone,), fetch="one"
-    )
+    row = find_user_by_phone(phone)
     if row is None:
         return jsonify({"ok": False, "error": "ไม่พบผู้ใช้"}), 404
 
@@ -636,6 +681,26 @@ def user_login():
 
 
 # ─── Customer Management ──────────────────────────────────────────────────────
+@app.get("/api/auth/user/phone_match")
+def user_phone_match():
+    """Check whether a phone number exists in Users table."""
+    phone = normalize_phone(request.args.get("phone", ""))
+    if not phone:
+        return jsonify({"ok": False, "error": "phone is required"}), 400
+    if len(phone) != 10:
+        return jsonify({"ok": False, "error": "phone must be exactly 10 digits"}), 400
+
+    row = find_user_by_phone(phone)
+    return jsonify(
+        {
+            "ok": True,
+            "phone": phone,
+            "exists": row is not None,
+            "user_id": row["user_id"] if row else None,
+        }
+    )
+
+
 @app.get("/api/customers")
 @require_customer_jwt
 def list_customers():
@@ -955,8 +1020,12 @@ def pictures():
     payload = request.jwt_payload
     actor_type = payload.get("type")
 
-    phone_filter   = request.args.get("phone", "").strip()
+    phone_query_raw = str(request.args.get("phone", "")).strip()
+    phone_filter = normalize_phone(phone_query_raw)
     owner_filter   = request.args.get("owner", "").strip()
+
+    if phone_query_raw and len(phone_filter) != 10:
+        return jsonify({"ok": False, "error": "phone must be exactly 10 digits"}), 400
 
     conditions = []
     params: list = []
@@ -967,13 +1036,15 @@ def pictures():
             "SELECT Phone_Number FROM Users WHERE User_ID = %s",
             (payload["sub"],), fetch="one"
         )
-        own_phone = user_row["phone_number"] if user_row else ""
-        conditions.append("Phone_Number = %s")
+        own_phone = normalize_phone(user_row["phone_number"] if user_row else "")
+        if len(own_phone) != 10:
+            return jsonify({"ok": True, "count": 0, "pictures": []})
+        conditions.append("REGEXP_REPLACE(COALESCE(Phone_Number, ''), '\\D', '', 'g') = %s")
         params.append(own_phone)
     else:
         # Customer can filter freely
         if phone_filter:
-            conditions.append("Phone_Number = %s")
+            conditions.append("REGEXP_REPLACE(COALESCE(Phone_Number, ''), '\\D', '', 'g') = %s")
             params.append(phone_filter)
 
     if owner_filter:

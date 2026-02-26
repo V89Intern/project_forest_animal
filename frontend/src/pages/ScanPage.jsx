@@ -193,6 +193,17 @@ export function ScanPage() {
           setStatusMsg(d.message || "Processing...");
         }
 
+        if (d.state === "CAPTURING" || d.state === "PROCESSING" || d.state === "READY_FOR_REVIEW") {
+          const pipeResp = await ForestAPI.getPipelineStatus({ wait: false });
+          const queueCurrent = pipeResp.data?.queue_current;
+          if (pipeResp.ok && queueCurrent?.job_id) {
+            const who = queueCurrent.requester_name || queueCurrent.drawer_name || "-";
+            setStatusMsg(
+              `${d.message || "Processing..."} | Current queue: ${queueCurrent.job_id} (${queueCurrent.status || "-"}) by ${who}`
+            );
+          }
+        }
+
         if (d.state === "READY_FOR_REVIEW") {
           const finalType = creatureType;
           setProgress(90);

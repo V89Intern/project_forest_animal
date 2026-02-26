@@ -11,7 +11,7 @@ html,
   padding: 0 !important;
   width: 100% !important;
   max-width: 100% !important;
-  background-color: #f4f6f9 !important;
+  background-color: #eeeff0 !important;
   place-items: start !important;
   overflow-x: hidden;
 }
@@ -36,13 +36,15 @@ html,
   left: 0;
   width: 100%;
   display: flex;
-  flex-direction: column;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  background-image: url("/backgrounds/ground/ground_1.png");
+  background-size: cover;
+  background-position: center;
   transition: all 0.8s cubic-bezier(0.65, 0, 0.05, 1);
   z-index: 50;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 25px 30px rgba(0, 0, 0, 0.226);
+
 }
 
 /* สถานะที่ 1: โชว์ 1.2 วิแรก (เต็มจอ) */
@@ -61,7 +63,25 @@ html,
   font-weight: 800;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 15px;
+}
+
+.logo-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 8px;
+  backdrop-filter: blur(4px);
+}
+
+.logo-icon img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
 }
 
 /* ================= Main Content ================= */
@@ -192,6 +212,8 @@ html,
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+  justify-content: center;
+  display: contents;
 }
 
 .option-card {
@@ -199,7 +221,7 @@ html,
   background: #fff;
   border-radius: 16px;
   padding: 18px;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.2s ease;
 }
@@ -423,6 +445,8 @@ html,
   position: relative;
   mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
   -webkit-mask-image: linear-gradient(to right, transparent 0%, black 5%, black 95%, transparent 100%);
+  display: flex;
+  justify-content: center;
 }
 
 .carousel-track {
@@ -440,6 +464,7 @@ html,
   0% {
     transform: translateX(0);
   }
+
   100% {
     transform: translateX(-50%);
   }

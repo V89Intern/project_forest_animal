@@ -213,6 +213,10 @@ export function OperatorPage() {
     return new Date(b.update_timestamp || 0).getTime() - new Date(a.update_timestamp || 0).getTime();
   });
   const queueTop5 = queueJobsSorted.filter((j) => Number.isFinite(Number(j.queue_position))).slice(0, 5);
+  const queueCurrent = pipeline.queue_current || null;
+  const queueCurrentLabel = queueCurrent
+    ? [queueCurrent.requester_name || queueCurrent.drawer_name || "-", queueCurrent.phone_number || "-"].join(" | ")
+    : "-";
 
   // ── Delete helpers ────────────────────────────────────────────────────────
   const toggleSelect = useCallback((fn) => {
@@ -350,6 +354,12 @@ export function OperatorPage() {
                   </div>
                 ))}
                 <div className="db-pipeline-msg">{pipeline.message || "—"}</div>
+                <div className="db-pipeline-msg">
+                  Current Queue: {queueCurrent?.job_id || "-"} | {queueCurrent?.status || "-"} | {Number(queueCurrent?.progress || 0)}%
+                </div>
+                <div className="db-pipeline-msg">
+                  Uploading By: {queueCurrentLabel}
+                </div>
               </div>
             </Card>
 
