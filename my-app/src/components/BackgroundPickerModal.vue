@@ -26,24 +26,16 @@
               </div>
 
               <div v-else class="bg-list">
-                <div
-                  v-for="(bg, idx) in availableBackgrounds"
-                  :key="idx"
-                  class="bg-thumb-wrap"
-                  :class="{ selected: selectedBgIndex === idx }"
-                  @click="selectBackground(idx)"
-                >
+                <div v-for="(bg, idx) in availableBackgrounds" :key="idx" class="bg-thumb-wrap"
+                  :class="{ selected: selectedBgIndex === idx }" @click="selectBackground(idx)">
                   <img :src="bg.url" :alt="bg.name" class="bg-thumb" />
                   <div class="bg-thumb-label">{{ bg.name }}</div>
                 </div>
               </div>
 
               <!-- No background option -->
-              <div
-                class="bg-thumb-wrap none-option"
-                :class="{ selected: selectedBgIndex === -1 }"
-                @click="selectBackground(-1)"
-              >
+              <div class="bg-thumb-wrap none-option" :class="{ selected: selectedBgIndex === -1 }"
+                @click="selectBackground(-1)">
                 <div class="bg-none-preview">
                   <span>🚫</span>
                 </div>
@@ -62,11 +54,7 @@
               </div>
 
               <div class="bgpicker-actions">
-                <button
-                  class="dl-btn"
-                  :disabled="compositing"
-                  @click="doDownload"
-                >
+                <button class="dl-btn" :disabled="compositing" @click="doDownload">
                   <span v-if="compositing" class="spinner spinner-sm"></span>
                   <span v-else>⬇</span>
                   {{ compositing ? 'กำลังเตรียม...' : 'ดาวน์โหลด' }}
@@ -156,7 +144,10 @@ const compositing = ref(false)
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image()
-    img.crossOrigin = 'anonymous'
+    const isLocal = src.startsWith('/') || src.startsWith(window.location.origin)
+    if (!isLocal) {
+      img.crossOrigin = 'anonymous'
+    }
     img.onload = () => resolve(img)
     img.onerror = reject
     img.src = src
@@ -189,8 +180,12 @@ async function drawPreview() {
       drawCheckerboard(ctx, A4_W, A4_H)
     }
 
-    // 2) โหลดรูปสัตว์จาก backend (CORS ok เพราะ same-origin proxy หรือ direct)
-    const animalUrl = `${props.apiBase}/${props.item.url_path}`
+    // 2) โหลดรูปสัตว์จาก backend
+    let animalUrl = props.item.url_path
+    if (animalUrl && animalUrl.startsWith('/') && props.apiBase) {
+      // เผื่อว่า apiBase มี slash ต่อท้ายหรือไม่
+      animalUrl = props.apiBase.replace(/\/+$/, '') + animalUrl
+    }
     try {
       const animalImg = await loadImage(animalUrl)
       // วางสัตว์ตรงกลาง ขนาดไม่เกิน 80% ของ canvas

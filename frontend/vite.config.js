@@ -8,11 +8,11 @@ export default defineConfig({
     host: true,
     port: 5173,
     proxy: {
-      "/api": { target: "http://103.114.203.22:809", changeOrigin: true },
-      "/outputs": { target: "http://103.114.203.22:809", changeOrigin: true },
-      "/static/animations": { target: "http://103.114.203.22:809", changeOrigin: true },
-      "/static/rmbg_temp.png": { target: "http://103.114.203.22:809", changeOrigin: true },
-      "/static/forest_ambience.mp3": { target: "http://103.114.203.22:809", changeOrigin: true }
+      "/api": { target: "https://bmj.v89tech.com", changeOrigin: true },
+      "/outputs": { target: "https://bmj.v89tech.com", changeOrigin: true },
+      "/static/animations": { target: "https://bmj.v89tech.com", changeOrigin: true },
+      "/static/rmbg_temp.png": { target: "https://bmj.v89tech.com", changeOrigin: true },
+      "/static/forest_ambience.mp3": { target: "https://bmj.v89tech.com", changeOrigin: true }
     }
   },
   build: {

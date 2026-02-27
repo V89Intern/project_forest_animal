@@ -4,8 +4,18 @@ function withBase(path) {
   return API_BASE ? `${API_BASE}${path}` : path;
 }
 
-async function request(path, options) {
-  const response = await fetch(withBase(path), options);
+async function request(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  
+  // แนบ JWT Token ถ้ามีอยู่ใน localStorage
+  const token = localStorage.getItem("token");
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const newOptions = { ...options, headers };
+
+  const response = await fetch(withBase(path), newOptions);
   let data = null;
   try {
     data = await response.json();

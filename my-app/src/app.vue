@@ -21,8 +21,7 @@
         <div class="carousel-track-wrapper">
           <div class="carousel-track" ref="carouselTrack">
             <div v-for="(img, idx) in duplicatedLatest" :key="'lat-' + idx" class="carousel-card">
-              <img :src="apiBase + '/' + img.url_path" :alt="img.Owner_Name || img.owner_name" class="carousel-img"
-                loading="lazy" />
+              <img :src="img.url_path" :alt="img.Owner_Name || img.owner_name" class="carousel-img" loading="lazy" />
               <div class="carousel-label">
                 {{ img.Owner_Name || img.owner_name || 'ไม่ระบุ' }}
               </div>
@@ -163,7 +162,7 @@
               <div v-else-if="entries.length > 0" class="image-grid">
                 <div v-for="item in entries" :key="item.pe_id" class="image-card">
                   <div class="card-img-wrap">
-                    <img :src="apiBase + '/' + item.url_path" alt="image" class="card-img" loading="lazy" />
+                    <img :src="item.url_path" alt="image" class="card-img" loading="lazy" />
                   </div>
                   <div class="card-body">
                     <div class="card-creature">
@@ -193,12 +192,8 @@
     </Teleport>
 
     <!-- ========== Background Picker Modal ========== -->
-    <BackgroundPickerModal
-      v-if="showBgPicker && bgPickerItem"
-      :item="bgPickerItem"
-      :apiBase="apiBase"
-      @close="showBgPicker = false"
-    />
+    <BackgroundPickerModal v-if="showBgPicker && bgPickerItem" :item="bgPickerItem" :apiBase="apiBase"
+      @close="showBgPicker = false" />
 
     <!-- ========== Option Entry Popup Modal ========== -->
     <Teleport to="body">
@@ -241,7 +236,7 @@ import BackgroundPickerModal from './components/BackgroundPickerModal.vue'
 // ============================================================
 const API_BASE = import.meta.env.VITE_API_BASE
 const apiBase = API_BASE
-console.log('[App] API_BASE =', API_BASE)
+// console.log('[App] API_BASE =', API_BASE)
 
 // ============================================================
 // Auth & State
@@ -295,7 +290,7 @@ const searchText = ref('')
 // ============================================================
 const duplicatedLatest = computed(() => {
   if (latestImages.value.length === 0) return []
-  return [...latestImages.value ]
+  return [...latestImages.value]
 })
 
 // ============================================================
@@ -324,10 +319,46 @@ async function authFetch(url, options = {}) {
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = reject
-    reader.readAsDataURL(file)
+    if (!file.type.startsWith('image/')) {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+      return
+    }
+
+    const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      let { width, height } = img
+      const MAX_SIZE = 1600
+
+      if (width > height && width > MAX_SIZE) {
+        height = Math.round((height * MAX_SIZE) / width)
+        width = MAX_SIZE
+      } else if (height > MAX_SIZE) {
+        width = Math.round((width * MAX_SIZE) / height)
+        height = MAX_SIZE
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+
+      // Draw white background to handle transparent PNGs
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, width, height)
+      ctx.drawImage(img, 0, 0, width, height)
+
+      resolve(canvas.toDataURL('image/jpeg', 0.8))
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('Failed to load image for compression'))
+    }
+    img.src = objectUrl
   })
 }
 
@@ -370,21 +401,10 @@ async function loginWithPhone() {
 
     let { res, data } = await doUserLogin()
 
-    // ถ้าไม่พบผู้ใช้ → สมัครอัตโนมัติ แล้ว login ใหม่
+    // ถ้าไม่พบผู้ใช้ → แจ้ง error
     if (res.status === 404) {
-      const regRes = await fetch(`${apiBase}/api/auth/user/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, pdpa: true })
-      })
-      let regData = null
-      try { regData = await regRes.json() } catch (_) { regData = null }
-
-      if (!regRes.ok || !regData?.ok) {
-        loginError.value = regData?.error || 'สมัครสมาชิกไม่สำเร็จ'
-        return
-      }
-      ; ({ res, data } = await doUserLogin())
+      loginError.value = 'เบอร์นี้ยังไม่ได้ลงทะเบียน'
+      return
     }
 
     if (!res.ok || !data?.ok || !data?.token) {
@@ -450,7 +470,7 @@ async function submitUpload() {
 
   try {
     // 1) ส่งรูปเข้า queue
-    const captureRes = await fetch(`${apiBase}/api/capture_process`, {
+    const captureRes = await authFetch(`${apiBase}/api/capture_process`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -585,7 +605,7 @@ async function searchImages() {
     const data = await res.json()
     entries.value = data.ok ? (data.pictures || []) : []
   } catch (err) {
-    console.error('Search failed:', err)
+    // console.error('Search failed:', err)
     entries.value = []
   } finally {
     loading.value = false
@@ -607,12 +627,12 @@ async function fetchLatest() {
   try {
     const res = await authFetch(`${apiBase}/api/gallery`, { cache: 'no-store' })
     const data = await res.json()
-    console.log('[App] Latest gallery:', data)
+    // console.log('[App] Latest gallery:', data)
     if (data.ok && Array.isArray(data.pictures)) {
       latestImages.value = data.pictures
     }
   } catch (err) {
-    console.error('Failed to fetch latest:', err)
+    // console.error('Failed to fetch latest:', err)
   }
 }
 

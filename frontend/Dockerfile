@@ -14,6 +14,10 @@ FROM nginx:1.27-alpine
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 
+# SSL certificates will be mounted as volume from ./ssl/
+RUN mkdir -p /etc/nginx/ssl
+
 EXPOSE 80
+EXPOSE 443
 
 CMD ["nginx", "-g", "daemon off;"]

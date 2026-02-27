@@ -122,22 +122,64 @@ function onFileSelected(e) {
     const file = e.target?.files?.[0]
     if (!file) return
 
-    // ตรวจขนาด (10 MB)
-    if (file.size > 10 * 1024 * 1024) {
-        statusMsg.value = 'ไฟล์ใหญ่เกินไป (สูงสุด 10 MB)'
+    // ตรวจขนาดเพิ่มให้มือถือ (15 MB)
+    if (file.size > 15 * 1024 * 1024) {
+        statusMsg.value = 'ไฟล์ใหญ่เกินไป (สูงสุด 15 MB)'
         statusType.value = 'error'
         return
     }
 
     imageFile.value = file
-    statusMsg.value = ''
+    statusMsg.value = 'กำลังเตรียมรูปภาพ...'
+    statusType.value = '' // reset
 
-    const reader = new FileReader()
-    reader.onload = () => {
-        imagePreview.value = reader.result
-        imageDataUrl.value = reader.result
+    if (!file.type.startsWith('image/')) {
+        const reader = new FileReader()
+        reader.onload = () => {
+            imagePreview.value = reader.result
+            imageDataUrl.value = reader.result
+            statusMsg.value = ''
+        }
+        reader.readAsDataURL(file)
+        e.target.value = ''
+        return
     }
-    reader.readAsDataURL(file)
+
+    const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    img.onload = () => {
+        URL.revokeObjectURL(objectUrl)
+        let { width, height } = img
+        const MAX_SIZE = 1600
+
+        if (width > height && width > MAX_SIZE) {
+            height = Math.round((height * MAX_SIZE) / width)
+            width = MAX_SIZE
+        } else if (height > MAX_SIZE) {
+            width = Math.round((width * MAX_SIZE) / height)
+            height = MAX_SIZE
+        }
+
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, width, height)
+        ctx.drawImage(img, 0, 0, width, height)
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+        imagePreview.value = dataUrl
+        imageDataUrl.value = dataUrl
+        statusMsg.value = ''
+    }
+    img.onerror = () => {
+        URL.revokeObjectURL(objectUrl)
+        statusMsg.value = 'โหลดรูปภาพไม่สำเร็จ'
+        statusType.value = 'error'
+    }
+    img.src = objectUrl
 
     // reset file input เพื่อให้เลือกไฟล์ซ้ำได้
     e.target.value = ''
@@ -200,9 +242,13 @@ async function submitRegister() {
         queueInfo.position = 0
         queueInfo.total = 0
 
+        const token = localStorage.getItem('token') || '';
         const captureRes = await fetch(`${props.apiBase}/api/capture_process`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
             body: JSON.stringify({
                 image_data: imageDataUrl.value,
                 type: 'ground',
@@ -235,7 +281,11 @@ async function submitRegister() {
         for (let i = 0; i < 300; i++) {
             await new Promise((r) => setTimeout(r, 800))
             try {
-                const statusRes = await fetch(`${props.apiBase}/api/queue_status/${encodeURIComponent(jobId)}`, { cache: 'no-store' })
+                const token = localStorage.getItem('token') || '';
+                const statusRes = await fetch(`${props.apiBase}/api/queue_status/${encodeURIComponent(jobId)}`, {
+                    cache: 'no-store',
+                    headers: token ? { Authorization: `Bearer ${token}` } : {}
+                })
                 const statusData = await statusRes.json()
                 if (!statusRes.ok) continue
 
@@ -284,7 +334,10 @@ async function submitRegister() {
 
         const approveRes = await fetch(`${props.apiBase}/api/approve`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
             body: JSON.stringify({
                 job_id: jobId,
                 type: 'ground',

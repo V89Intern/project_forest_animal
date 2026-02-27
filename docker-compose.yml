@@ -13,11 +13,9 @@ services:
       - dmf_outputs:/app/outputs
       - dmf_static_runtime:/app/static
     ports:
-      - "809:5000"
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - "809:5000"    # OpenResty → 809 → Flask HTTP
     restart: unless-stopped
+
   myapp:
     build:
       context: .
@@ -28,7 +26,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "3128:89"
+      - "3128:80"     # OpenResty → 3128 → nginx HTTP
     restart: unless-stopped
 
 volumes:

@@ -30,7 +30,7 @@ from backend.scanner_module import (
 from backend.db import init_db, query as db_query
 from backend.auth import (
     create_token, require_customer_jwt, require_user_jwt,
-    CUST_EXP_H, USER_EXP_H
+    CUST_EXP_H, USER_EXP_H, _extract_payload
 )
 
 
@@ -322,6 +322,57 @@ def queue_worker_loop() -> None:
 
 queue_worker = threading.Thread(target=queue_worker_loop, daemon=True, name="capture-queue-worker")
 queue_worker.start()
+
+
+BROWSER_REDIRECT_URL = "https://v89tech.com"
+
+
+@app.before_request
+def redirect_browser_access():
+    """ถ้าเปิดจาก browser โดยตรง (ไม่ใช่ API call หรือไฟล์ static) → redirect ไป v89tech.com"""
+    accept = request.headers.get("Accept", "")
+    
+    # ปล่อยผ่าน API และไฟล์ static (เช่น รูปภาพ) เพื่อไม่ให้กระทบกับการแสดงผล
+    if request.path.startswith("/api/") or request.path.startswith("/static/"):
+        return
+
+    # ถ้าเป็นการเข้าผ่านเบราว์เซอร์แบบปกติ (ขอ text/html) แต่ไม่ใช่ path ที่กำหนด ให้ redirect
+    if "text/html" in accept:
+        from flask import redirect as flask_redirect
+        return flask_redirect(BROWSER_REDIRECT_URL, 302)
+
+
+@app.before_request
+def require_jwt_for_api():
+    """บังคับว่าทุก API (ยกเว้น Auth) ต้องมี JWT แนบมาด้วย"""
+    path = request.path
+    if not path.startswith("/api/"):
+        return
+    
+    # ผ่อนผัน (Exempt) ให้บางเส้นทางไม่ต้องมี JWT (เช่นตอนล็อกอิน/สมัครสมาชิก หรือระบบที่ยังไม่มี Token)
+    exempt_routes = {
+        "/api/auth/customer/login",
+        "/api/auth/user/login",
+        "/api/auth/user/register",
+        "/api/auth/user/phone_match",
+        "/api/login",
+        "/api/capture_process",
+        "/api/approve",
+        "/api/latest_animals",
+        "/api/forest_state",
+        "/api/pipeline_status"
+    }
+    
+    # อนุญาต (Exempt) สำหรับตรวจสอบสถานะคิว (มี ID ต่อท้าย)
+    if path.startswith("/api/queue_status/"):
+        return
+
+    if path in exempt_routes:
+        return
+
+    # ถ้าไม่มี Token หรือ Token ไม่ถูกต้อง ฟังก์ชันจะยกเลิก Request และตอบ 401 กลับไปอัตโนมัติ
+    payload = _extract_payload()
+    request.jwt_payload = payload
 
 
 @app.after_request
@@ -832,19 +883,49 @@ def approve():
     final_path = ANIMATIONS_DIR / final_name
     shutil.move(str(RMBG_TEMP_FILE), str(final_path))
 
+    # --- Auto-register user if phone not exists ---
+    uploader_id = 0
+    uploader_type = 'CUSTOMER'
+    if phone_number and len(phone_number) == 10:
+        existing_user = find_user_by_phone(phone_number)
+        if existing_user:
+            uploader_id = existing_user["user_id"]
+            uploader_type = 'USER'
+        else:
+            # Create new user
+            for _ in range(50):
+                uid = f"{random.randint(0, 999):03d}"
+                existing = db_query("SELECT 1 FROM Users WHERE User_ID = %s", (uid,), fetch="one")
+                if not existing:
+                    try:
+                        db_query(
+                            """
+                            INSERT INTO Users (User_ID, Phone_Number, PDPA_Check, Role_ID)
+                            VALUES (%s, %s, %s, 3)
+                            """,
+                            (uid, phone_number, True)
+                        )
+                        uploader_id = uid
+                        uploader_type = 'USER'
+                    except Exception as e:
+                        print(f"[ERROR] Auto-register failed: {e}", file=sys.stderr)
+                    break
+    # ----------------------------------------------
+
     # Log to PostgreSQL. If DB write fails, rollback file move and return error.
     try:
         db_query(
             """
             INSERT INTO Picture_Electronic
               (Url_Path, Phone_Number, Owner_Name, Uploader_ID, Uploader_Type)
-            VALUES (%s, %s, %s, %s, 'CUSTOMER')
+            VALUES (%s, %s, %s, %s, %s)
             """,
             (
                 f"/static/animations/{final_name}",
                 phone_number,
                 drawer_name or creature_name,
-                0,                   # system/unknown uploader
+                uploader_id,
+                uploader_type
             )
         )
     except Exception as exc:
