@@ -14,9 +14,9 @@ export default defineConfig({
     port: 89,
     host: true,
     proxy: {
-      '/api':     { target: 'https://bmj.v89tech.com', changeOrigin: true },
-      '/static':  { target: 'https://bmj.v89tech.com', changeOrigin: true },
-      '/outputs': { target: 'https://bmj.v89tech.com', changeOrigin: true },
+      '/api':     { target: 'http://127.0.0.1:5000', changeOrigin: true },
+      '/static':  { target: 'http://127.0.0.1:5000', changeOrigin: true },
+      '/outputs': { target: 'http://127.0.0.1:5000', changeOrigin: true },
     },
   },
 })

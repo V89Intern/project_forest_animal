@@ -360,7 +360,8 @@ def require_jwt_for_api():
         "/api/approve",
         "/api/latest_animals",
         "/api/forest_state",
-        "/api/pipeline_status"
+        "/api/pipeline_status",
+        "/api/gallery/latest_public"
     }
     
     # อนุญาต (Exempt) สำหรับตรวจสอบสถานะคิว (มี ID ต่อท้าย)

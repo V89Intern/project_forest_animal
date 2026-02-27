@@ -14,7 +14,7 @@
       </div>
     </header>
 
-    <main v-if="!isSplash && isLoggedIn" class="main-content fade-up-anim">
+    <main v-if="!isSplash" class="main-content fade-up-anim">
       <!-- ========== Latest Images Carousel ========== -->
       <div v-if="latestImages.length > 0" class="carousel-section">
         <h2 class="carousel-title">🌟 ภาพล่าสุด</h2>
@@ -29,7 +29,6 @@
           </div>
         </div>
       </div>
-
       <div class="content-wrapper">
         <div style="display:flex;justify-content:flex-end;">
           <button class="search-btn" style="max-width:140px;padding:10px 14px;" @click="logout">
@@ -172,7 +171,7 @@
                       {{ item.owner_name || 'ไม่ระบุชื่อ' }}
                     </div>
                     <div class="card-time">
-                      {{ item.upload_timestamp }}
+                      {{ formatTime(item.upload_timestamp) }}
                     </div>
                     <button class="download-btn" @click="openBgPicker(item)">
                       <span>⬇</span>
@@ -293,12 +292,26 @@ const searchText = ref('')
 // ============================================================
 const duplicatedLatest = computed(() => {
   if (latestImages.value.length === 0) return []
-  return [...latestImages.value]
+  // Duplicate array so CSS marquee can wrap without gaps
+  return [...latestImages.value, ...latestImages.value]
 })
 
 // ============================================================
 // Helpers
 // ============================================================
+function formatTime(val) {
+  if (!val) return ''
+  const d = new Date(val)
+  if (isNaN(d.getTime())) return val
+  return d.toLocaleString('th-TH', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
 function getToken() {
   return localStorage.getItem('token') || ''
 }
@@ -627,10 +640,6 @@ function closeModal() {
 // Gallery – GET /api/gallery (latest images)
 // ============================================================
 async function fetchLatest() {
-  if (!isLoggedIn.value) {
-    latestImages.value = []
-    return
-  }
   try {
     const res = await fetch(`${apiBase}/api/gallery/latest_public`, { cache: 'no-store' })
     const data = await res.json()
@@ -647,7 +656,7 @@ async function fetchLatest() {
 // Lifecycle
 // ============================================================
 onMounted(() => {
-  if (isLoggedIn.value) fetchLatest()
+  fetchLatest()
   setTimeout(() => {
     isSplash.value = false
   }, 1200)
