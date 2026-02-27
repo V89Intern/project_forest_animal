@@ -57,7 +57,7 @@ function buildCloud(scene, x, y, z, opacity) {
     color: 0xffffff, transparent: true,
     opacity: opacity ?? 0.88, roughness: 1, metalness: 0, envMapIntensity: 0
   });
-  const puffCount = 5 + Math.floor(Math.random() * 5);
+  const puffCount = 20 + Math.floor(Math.random() * 8);
   for (let i = 0; i < puffCount; i++) {
     const r = 4 + Math.random() * 5;
     const puff = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 6), mat);
@@ -222,15 +222,25 @@ export function initializeForestScene(config) {
 
   // ── Clouds ───────────────────────────────────────────────────────────────────
   const clouds = [];
-  const cloudPos = [
-    [-80, 90, -200], [40, 80, -180], [140, 100, -220], [-160, 95, -190],
-    [0, 85, -240], [90, 75, -160], [-50, 110, -260], [200, 90, -200],
-    [-200, 88, -170], [60, 105, -300], [-120, 92, -300], [20, 70, -140]
-  ];
-  for (const [cx, cy, cz] of cloudPos) {
-    const jx = cx + (Math.random() - 0.5) * 30;
-    const jz = cz + (Math.random() - 0.5) * 30;
-    clouds.push(buildCloud(scene, jx, cy, jz));
+  const CLOUD_BOUNDS = { xMin: -240, xMax: 240, zMin: -240, zMax: 240, yMin: 72, yMax: 118 };
+  const CLOUD_GRID = { cols: 5, rows: 4 };
+  const xStep = (CLOUD_BOUNDS.xMax - CLOUD_BOUNDS.xMin) / CLOUD_GRID.cols;
+  const zStep = (CLOUD_BOUNDS.zMax - CLOUD_BOUNDS.zMin) / CLOUD_GRID.rows;
+
+  for (let row = 0; row < CLOUD_GRID.rows; row++) {
+    for (let col = 0; col < CLOUD_GRID.cols; col++) {
+      const cx = CLOUD_BOUNDS.xMin + xStep * (col + 0.5) + (Math.random() - 0.5) * xStep * 0.55;
+      const cz = CLOUD_BOUNDS.zMin + zStep * (row + 0.5) + (Math.random() - 0.5) * zStep * 0.55;
+      const cy = CLOUD_BOUNDS.yMin + Math.random() * (CLOUD_BOUNDS.yMax - CLOUD_BOUNDS.yMin);
+      const cloud = buildCloud(scene, cx, cy, cz);
+      cloud.userData.baseY = cy;
+      cloud.userData.phase = Math.random() * Math.PI * 2;
+      cloud.userData.wrapMinX = CLOUD_BOUNDS.xMin - 70;
+      cloud.userData.wrapMaxX = CLOUD_BOUNDS.xMax + 70;
+      cloud.userData.zMin = CLOUD_BOUNDS.zMin;
+      cloud.userData.zMax = CLOUD_BOUNDS.zMax;
+      clouds.push(cloud);
+    }
   }
 
   // ── Lights ───────────────────────────────────────────────────────────────────
@@ -299,6 +309,70 @@ export function initializeForestScene(config) {
   ground.position.y = -0.1;
   ground.receiveShadow = true;
   scene.add(ground);
+
+  // â”€â”€ Distant background (outside playable map) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const farGroundGeo = new THREE.PlaneGeometry(1700, 1700, 56, 56);
+  const farPos = farGroundGeo.attributes.position;
+  for (let i = 0; i < farPos.count; i++) {
+    const gx = farPos.getX(i);
+    const gyPlane = farPos.getY(i);
+    const dist = Math.hypot(gx, gyPlane);
+    const noise =
+      Math.sin(gx * 0.012) * 1.8 +
+      Math.cos(gyPlane * 0.015) * 1.4 +
+      Math.sin((gx + gyPlane) * 0.009) * 1.2;
+    const rimRise = Math.max(0, (dist - 280) / 520) * 13;
+    farPos.setZ(i, noise + rimRise);
+  }
+  farGroundGeo.computeVertexNormals();
+
+  const farGroundMat = new THREE.MeshStandardMaterial({
+    color: 0x607b59, roughness: 1.0, metalness: 0.0
+  });
+  const farGround = new THREE.Mesh(farGroundGeo, farGroundMat);
+  farGround.rotation.x = -Math.PI / 2;
+  farGround.position.y = -14;
+  farGround.receiveShadow = false;
+  scene.add(farGround);
+
+  const mountainMat = new THREE.MeshStandardMaterial({
+    color: 0x7f96a8, roughness: 1.0, metalness: 0.0,
+    transparent: true, opacity: 0.44, depthWrite: false
+  });
+  const distantMountains = new THREE.Group();
+  for (let i = 0; i < 34; i++) {
+    const a = (i / 34) * Math.PI * 2 + (Math.random() - 0.5) * 0.14;
+    const radius = 620 + Math.random() * 520;
+    const h = 26 + Math.random() * 54;
+    const base = 22 + Math.random() * 32;
+    const mountain = new THREE.Mesh(new THREE.ConeGeometry(base, h, 14), mountainMat);
+    mountain.position.set(Math.cos(a) * radius, -16 + h * 0.42, Math.sin(a) * radius);
+    mountain.scale.set(1.1 + Math.random() * 1.2, 1, 1);
+    mountain.rotation.y = Math.random() * Math.PI * 2;
+    mountain.castShadow = false;
+    mountain.receiveShadow = false;
+    distantMountains.add(mountain);
+  }
+  scene.add(distantMountains);
+
+  const distantTreeMat = new THREE.MeshStandardMaterial({
+    color: 0x355a39, roughness: 0.95, metalness: 0.0,
+    transparent: true, opacity: 0.58, depthWrite: false
+  });
+  const distantTrees = new THREE.Group();
+  for (let i = 0; i < 110; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const radius = 560 + Math.random() * 560;
+    const h = 6 + Math.random() * 11;
+    const r = 1.2 + Math.random() * 2.0;
+    const tree = new THREE.Mesh(new THREE.ConeGeometry(r, h, 8), distantTreeMat);
+    tree.position.set(Math.cos(a) * radius, -16 + h * 0.45, Math.sin(a) * radius);
+    tree.rotation.y = Math.random() * Math.PI * 2;
+    tree.castShadow = false;
+    tree.receiveShadow = false;
+    distantTrees.add(tree);
+  }
+  scene.add(distantTrees);
 
   // ── River ────────────────────────────────────────────────────────────────────
   const RIVER_W = 22, SEG = 240;
@@ -797,6 +871,9 @@ export function initializeForestScene(config) {
       fillLight.groundColor.setHex(0x3d6b3d); fillLight.intensity = 0.55;
       fireflyMat.opacity = 0.0;
       riverMat.color.setHex(0x1a88dd); riverMat.emissive.setHex(0x001a33);
+      farGroundMat.color.setHex(0x587554);
+      mountainMat.color.setHex(0x8da5b8);
+      distantTreeMat.color.setHex(0x3e6645);
       renderer.toneMappingExposure = 1.15;
       // sun on
       sunDisc.visible = true;
@@ -818,6 +895,9 @@ export function initializeForestScene(config) {
       fillLight.groundColor.setHex(0x0c1a0c); fillLight.intensity = 0.18;
       fireflyMat.opacity = 0.9;
       riverMat.color.setHex(0x0f2244); riverMat.emissive.setHex(0x001833);
+      farGroundMat.color.setHex(0x162027);
+      mountainMat.color.setHex(0x2c3a4a);
+      distantTreeMat.color.setHex(0x1a2f29);
       renderer.toneMappingExposure = 0.65;
       // sun off
       sunDisc.visible = false;
@@ -846,17 +926,29 @@ export function initializeForestScene(config) {
       rainMat.opacity = 0.52;
       if (currentTimeMode === "morning") {
         setSkyColors(0x4a6a80, 0x6a8fa8, 0x8aaa9a, 0x6a8fa8, 0.007);
+        farGroundMat.color.setHex(0x4f6460);
+        mountainMat.color.setHex(0x708596);
+        distantTreeMat.color.setHex(0x3a5747);
       } else {
         setSkyColors(0x030810, 0x080e1a, 0x090e10, 0x060c14, 0.009);
+        farGroundMat.color.setHex(0x111921);
+        mountainMat.color.setHex(0x1f2c39);
+        distantTreeMat.color.setHex(0x152622);
       }
     } else if (mode === "snow") {
       snowMat.opacity = 0.7;
       if (currentTimeMode === "morning") {
         setSkyColors(0x8aa8c4, 0xc4d8e8, 0xd8e8e8, 0xc4d8e8, 0.005);
         groundMat.color.setHex(0xd0e0d8);
+        farGroundMat.color.setHex(0xb7c4c1);
+        mountainMat.color.setHex(0xcbd7e2);
+        distantTreeMat.color.setHex(0x7d95a6);
       } else {
         setSkyColors(0x080c18, 0x0e1528, 0x101820, 0x0c1220, 0.007);
         groundMat.color.setHex(0x6080a0);
+        farGroundMat.color.setHex(0x455567);
+        mountainMat.color.setHex(0x74879d);
+        distantTreeMat.color.setHex(0x465f6f);
       }
     } else {
       groundMat.color.setHex(0x4a7c3f);
@@ -988,8 +1080,12 @@ export function initializeForestScene(config) {
     // Clouds drift
     for (const cloud of clouds) {
       cloud.position.x += cloud.userData.speed;
-      if (cloud.position.x > 350) cloud.position.x = -350;
-      cloud.position.y += Math.sin(now * 0.18 + cloud.userData.speed * 100) * 0.008;
+      if (cloud.position.x > cloud.userData.wrapMaxX) {
+        cloud.position.x = cloud.userData.wrapMinX;
+        cloud.position.z = cloud.userData.zMin + Math.random() * (cloud.userData.zMax - cloud.userData.zMin);
+        cloud.userData.baseY = CLOUD_BOUNDS.yMin + Math.random() * (CLOUD_BOUNDS.yMax - CLOUD_BOUNDS.yMin);
+      }
+      cloud.position.y = cloud.userData.baseY + Math.sin(now * 0.18 + cloud.userData.phase) * 1.1;
     }
 
     // Sun / moon always face camera (billboard)

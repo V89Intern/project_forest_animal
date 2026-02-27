@@ -33,7 +33,7 @@
                 <div class="input-group">
                     <label>ชื่อเล่น <span class="req">*</span></label>
                     <input v-model="nickname" type="text" class="custom-input" placeholder="เช่น น้องมิว"
-                        maxlength="50" />
+                        maxlength="30" />
                 </div>
 
                 <!-- เบอร์โทร -->
