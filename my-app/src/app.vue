@@ -14,7 +14,7 @@
       </div>
     </header>
 
-    <main v-if="!isSplash" class="main-content fade-up-anim">
+    <main v-if="isLoggedIn && !isSplash" class="main-content fade-up-anim">
       <!-- ========== Latest Images Carousel ========== -->
       <div v-if="latestImages.length > 0" class="carousel-section">
         <h2 class="carousel-title">🌟 ภาพล่าสุด</h2>
@@ -112,7 +112,7 @@
       </div>
     </main>
 
-    <main v-else-if="!isSplash" class="main-content fade-up-anim">
+    <main v-else-if="!isLoggedIn && !isSplash" class="main-content fade-up-anim">
       <div class="content-wrapper">
         <h2 class="section-title">เมนู</h2>
         <div class="option-grid">
