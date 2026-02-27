@@ -149,34 +149,39 @@ function onFileSelected(e) {
     const objectUrl = URL.createObjectURL(file)
     img.onload = () => {
         URL.revokeObjectURL(objectUrl)
-        let { width, height } = img
-        const MAX_SIZE = 1600
+        try {
+            let { width, height } = img
+            const MAX_SIZE = 1600
 
-        if (width > height && width > MAX_SIZE) {
-            height = Math.round((height * MAX_SIZE) / width)
-            width = MAX_SIZE
-        } else if (height > MAX_SIZE) {
-            width = Math.round((width * MAX_SIZE) / height)
-            height = MAX_SIZE
+            if (width > height && width > MAX_SIZE) {
+                height = Math.round((height * MAX_SIZE) / width)
+                width = MAX_SIZE
+            } else if (height > MAX_SIZE) {
+                width = Math.round((width * MAX_SIZE) / height)
+                height = MAX_SIZE
+            }
+
+            const canvas = document.createElement('canvas')
+            canvas.width = width
+            canvas.height = height
+            const ctx = canvas.getContext('2d')
+
+            ctx.fillStyle = '#ffffff'
+            ctx.fillRect(0, 0, width, height)
+            ctx.drawImage(img, 0, 0, width, height)
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+            imagePreview.value = dataUrl
+            imageDataUrl.value = dataUrl
+            statusMsg.value = ''
+        } catch (err) {
+            statusMsg.value = 'ลดขนาดรูปไม่สำเร็จ: ' + err.message
+            statusType.value = 'error'
         }
-
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-
-        ctx.fillStyle = '#ffffff'
-        ctx.fillRect(0, 0, width, height)
-        ctx.drawImage(img, 0, 0, width, height)
-
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
-        imagePreview.value = dataUrl
-        imageDataUrl.value = dataUrl
-        statusMsg.value = ''
     }
     img.onerror = () => {
         URL.revokeObjectURL(objectUrl)
-        statusMsg.value = 'โหลดรูปภาพไม่สำเร็จ'
+        statusMsg.value = 'บราวเซอร์ไม่รองรับรูปนี้ (อาจเป็น HEIC) กรุณาใช้ไฟล์ JPG/PNG'
         statusType.value = 'error'
     }
     img.src = objectUrl
@@ -373,7 +378,7 @@ async function submitRegister() {
 
     } catch (_err) {
         queueInfo.show = false
-        statusMsg.value = 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ'
+        statusMsg.value = 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ: ' + (_err.message || String(_err))
         statusType.value = 'error'
     } finally {
         submitting.value = false

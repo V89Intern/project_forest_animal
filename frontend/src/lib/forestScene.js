@@ -57,7 +57,7 @@ function buildCloud(scene, x, y, z, opacity) {
     color: 0xffffff, transparent: true,
     opacity: opacity ?? 0.88, roughness: 1, metalness: 0, envMapIntensity: 0
   });
-  const puffCount = 5 + Math.floor(Math.random() * 5);
+  const puffCount = 20 + Math.floor(Math.random() * 8);
   for (let i = 0; i < puffCount; i++) {
     const r = 4 + Math.random() * 5;
     const puff = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 6), mat);

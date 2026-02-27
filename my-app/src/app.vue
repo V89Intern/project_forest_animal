@@ -331,32 +331,36 @@ function readFileAsDataUrl(file) {
     const objectUrl = URL.createObjectURL(file)
     img.onload = () => {
       URL.revokeObjectURL(objectUrl)
-      let { width, height } = img
-      const MAX_SIZE = 1600
+      try {
+        let { width, height } = img
+        const MAX_SIZE = 1600
 
-      if (width > height && width > MAX_SIZE) {
-        height = Math.round((height * MAX_SIZE) / width)
-        width = MAX_SIZE
-      } else if (height > MAX_SIZE) {
-        width = Math.round((width * MAX_SIZE) / height)
-        height = MAX_SIZE
+        if (width > height && width > MAX_SIZE) {
+          height = Math.round((height * MAX_SIZE) / width)
+          width = MAX_SIZE
+        } else if (height > MAX_SIZE) {
+          width = Math.round((width * MAX_SIZE) / height)
+          height = MAX_SIZE
+        }
+
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+
+        // Draw white background to handle transparent PNGs
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, width, height)
+        ctx.drawImage(img, 0, 0, width, height)
+
+        resolve(canvas.toDataURL('image/jpeg', 0.8))
+      } catch (err) {
+        reject(new Error('ลดขนาดรูปไม่สำเร็จ: ' + err.message))
       }
-
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')
-
-      // Draw white background to handle transparent PNGs
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, width, height)
-      ctx.drawImage(img, 0, 0, width, height)
-
-      resolve(canvas.toDataURL('image/jpeg', 0.8))
     }
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl)
-      reject(new Error('Failed to load image for compression'))
+      reject(new Error('บราวเซอร์ไม่รองรับรูปนี้ (อาจเป็น HEIC) กรุณาใช้ไฟล์ JPG/PNG'))
     }
     img.src = objectUrl
   })
@@ -548,7 +552,7 @@ async function submitUpload() {
     uploadCreatureName.value = ''
     await fetchLatest()
   } catch (_err) {
-    uploadMessage.value = 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ'
+    uploadMessage.value = 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ: ' + (_err.message || String(_err))
   } finally {
     uploadLoading.value = false
   }

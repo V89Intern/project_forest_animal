@@ -51,6 +51,7 @@
                 <div v-if="compositing" class="canvas-loading">
                   <span class="spinner spinner-lg"></span>
                 </div>
+                <div v-if="errorMessage" style="color:red; margin-top:10px;">{{ errorMessage }}</div>
               </div>
 
               <div class="bgpicker-actions">
@@ -74,6 +75,8 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+
+const errorMessage = ref('')
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -133,7 +136,9 @@ function imageExists(url) {
     const img = new Image()
     img.onload = () => resolve(true)
     img.onerror = () => resolve(false)
-    img.src = url
+    // Make sure we try both relative and absolute paths
+    const finalUrl = url.startsWith('/') ? window.location.origin + url : url
+    img.src = finalUrl
   })
 }
 
@@ -246,9 +251,13 @@ async function doDownload() {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 onMounted(async () => {
-  availableBackgrounds.value = await probeBackgrounds(animalType.value)
-  selectedBgIndex.value = availableBackgrounds.value.length > 0 ? 0 : -1
-  await drawPreview()
+  try {
+    availableBackgrounds.value = await probeBackgrounds(animalType.value)
+    selectedBgIndex.value = availableBackgrounds.value.length > 0 ? 0 : -1
+    await drawPreview()
+  } catch (err) {
+    errorMessage.value = 'เกิดข้อผิดพลาดในการโหลด Canvas: ' + err.message
+  }
 })
 </script>
 
