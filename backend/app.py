@@ -1154,6 +1154,24 @@ def gallery():
     return pictures()
 
 
+@app.get("/api/gallery/latest_public")
+def gallery_latest_public():
+    """
+    Public endpoint to fetch the 10 most recent images for the global gallery carousel.
+    """
+    rows = db_query(
+        """
+        SELECT PE_ID, Url_Path, Phone_Number, Owner_Name,
+               Uploader_ID, Uploader_Type, Upload_Timestamp
+        FROM Picture_Electronic
+        ORDER BY Upload_Timestamp DESC
+        LIMIT 10
+        """,
+        fetch="all"
+    )
+    return jsonify({"ok": True, "count": len(rows), "pictures": [dict(r) for r in (rows or [])]})
+
+
 UPLOADS_DIR = STATIC_DIR / "uploads"
 
 

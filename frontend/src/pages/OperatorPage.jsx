@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback } from "react";
 import { ForestAPI } from "../lib/api.js";
 import { useAuth } from "../main.jsx";
 
+const TABLE_PAGE_SIZE = 10;
+
 // ─── API helper ───────────────────────────────────────────────────────────────
 function authHeader() {
   try {
@@ -77,58 +79,170 @@ function extractAnimationFilename(urlPath = "") {
   }
 }
 
-// ─── Picture table ────────────────────────────────────────────────────────────
-function PictureTable({ rows = [], showAll = false }) {
-  if (rows.length === 0) return <div className="db-empty">No data</div>;
+function TablePagination({ page, totalPages, totalRows, pageSize, onPageChange }) {
+  if (totalPages <= 1) return null;
+
+  const start = totalRows === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, totalRows);
+  const maxButtons = 5;
+  let startPage = Math.max(1, page - 2);
+  let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+  if (endPage - startPage + 1 < maxButtons) {
+    startPage = Math.max(1, endPage - maxButtons + 1);
+  }
+  const pages = [];
+  for (let p = startPage; p <= endPage; p++) pages.push(p);
+
   return (
-    <div className="db-table-wrap">
-      <table className="db-table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Phone</th>
-            <th>Owner</th>
-            <th>Type</th>
-            <th>Uploaded</th>
-            <th>Forest</th>
-            {showAll && <th>URL</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((p) => {
-            const filename = extractAnimationFilename(p.url_path);
-            const focusHref = filename ? `/forest?focus=${encodeURIComponent(filename)}` : "";
-            return (
-              <tr key={p.pe_id}>
-                <td className="db-table__id">{p.pe_id}</td>
-                <td>{p.phone_number || "-"}</td>
-                <td>{p.owner_name || "-"}</td>
-                <td>
-                  <span className={`db-badge db-badge--${(p.uploader_type || "").toLowerCase()}`}>
-                    {p.uploader_type || "-"}
-                  </span>
-                </td>
-                <td className="db-table__date">
-                  {p.upload_timestamp ? new Date(p.upload_timestamp).toLocaleString("th-TH") : "-"}
-                </td>
-                <td>
-                  {focusHref ? <a href={focusHref} className="db-link">Go to Position</a> : "-"}
-                </td>
-                {showAll && (
-                  <td>
-                    <a href={p.url_path} target="_blank" rel="noreferrer" className="db-link">View</a>
-                  </td>
-                )}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="db-pagination">
+      <div className="db-pagination__meta">Showing {start}-{end} of {totalRows}</div>
+      <div className="db-pagination__controls">
+        <button className="db-page-btn" disabled={page === 1} onClick={() => onPageChange(page - 1)}>
+          Prev
+        </button>
+        {pages.map((p) => (
+          <button
+            key={p}
+            className={`db-page-btn ${p === page ? "db-page-btn--active" : ""}`}
+            onClick={() => onPageChange(p)}
+          >
+            {p}
+          </button>
+        ))}
+        <button className="db-page-btn" disabled={page === totalPages} onClick={() => onPageChange(page + 1)}>
+          Next
+        </button>
+      </div>
     </div>
   );
 }
 
+// ─── Picture table ────────────────────────────────────────────────────────────
+function PictureTable({ rows = [], showAll = false }) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / TABLE_PAGE_SIZE));
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, totalPages));
+  }, [totalPages]);
+
+  if (rows.length === 0) return <div className="db-empty">No data</div>;
+  const startIdx = (page - 1) * TABLE_PAGE_SIZE;
+  const pageRows = rows.slice(startIdx, startIdx + TABLE_PAGE_SIZE);
+
+  return (
+    <>
+      <div className="db-table-wrap">
+        <table className="db-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Phone</th>
+              <th>Owner</th>
+              <th>Type</th>
+              <th>Uploaded</th>
+              <th>Forest</th>
+              {showAll && <th>URL</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {pageRows.map((p) => {
+              const filename = extractAnimationFilename(p.url_path);
+              const focusHref = filename ? `/forest?focus=${encodeURIComponent(filename)}` : "";
+              return (
+                <tr key={p.pe_id}>
+                  <td className="db-table__id">{p.pe_id}</td>
+                  <td>{p.phone_number || "-"}</td>
+                  <td>{p.owner_name || "-"}</td>
+                  <td>
+                    <span className={`db-badge db-badge--${(p.uploader_type || "").toLowerCase()}`}>
+                      {p.uploader_type || "-"}
+                    </span>
+                  </td>
+                  <td className="db-table__date">
+                    {p.upload_timestamp ? new Date(p.upload_timestamp).toLocaleString("th-TH") : "-"}
+                  </td>
+                  <td>
+                    {focusHref ? <a href={focusHref} className="db-link">Go to Position</a> : "-"}
+                  </td>
+                  {showAll && (
+                    <td>
+                      <a href={p.url_path} target="_blank" rel="noreferrer" className="db-link">View</a>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <TablePagination
+        page={page}
+        totalPages={totalPages}
+        totalRows={rows.length}
+        pageSize={TABLE_PAGE_SIZE}
+        onPageChange={setPage}
+      />
+    </>
+  );
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
+function QueueJobsTable({ rows = [] }) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / TABLE_PAGE_SIZE));
+  useEffect(() => {
+    setPage((prev) => Math.min(prev, totalPages));
+  }, [totalPages]);
+
+  if (rows.length === 0) return <div className="db-empty">No queue jobs</div>;
+  const startIdx = (page - 1) * TABLE_PAGE_SIZE;
+  const pageRows = rows.slice(startIdx, startIdx + TABLE_PAGE_SIZE);
+
+  return (
+    <>
+      <div className="db-table-wrap">
+        <table className="db-table">
+          <thead>
+            <tr>
+              <th>Job ID</th>
+              <th>Status</th>
+              <th>Queue</th>
+              <th>Type</th>
+              <th>Requester</th>
+              <th>Phone</th>
+              <th>Progress</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pageRows.map((j) => (
+              <tr key={j.job_id}>
+                <td className="db-table__id">{j.job_id}</td>
+                <td>{j.status}</td>
+                <td>{j.queue_position ? `${j.queue_position}/${j.queue_total}` : "-"}</td>
+                <td>{j.requested_type || "-"}</td>
+                <td>{j.requester_name || j.drawer_name || "-"}</td>
+                <td>{j.phone_number || "-"}</td>
+                <td>{Number(j.progress || 0)}%</td>
+                <td className="db-table__date">
+                  {j.update_timestamp ? new Date(j.update_timestamp).toLocaleString("th-TH") : "-"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <TablePagination
+        page={page}
+        totalPages={totalPages}
+        totalRows={rows.length}
+        pageSize={TABLE_PAGE_SIZE}
+        onPageChange={setPage}
+      />
+    </>
+  );
+}
+
 export function OperatorPage() {
   const { user, logout } = useAuth();
 
@@ -179,7 +293,6 @@ export function OperatorPage() {
     const d = new Date(p.upload_timestamp);
     return d.toDateString() === new Date().toDateString();
   }).length;
-  const activeCreatures = pipeline.active_entities ?? 0;
   const queueTotal = pipeline.queue_total ?? 0;
   const queueInProgress = queueJobs.filter((j) => ["CAPTURING", "PROCESSING", "READY_FOR_REVIEW", "SYNCING"].includes(j.status)).length;
   const queueWaiting = queueJobs.filter((j) => j.status === "QUEUED").length;
@@ -315,7 +428,6 @@ export function OperatorPage() {
               <StatCard icon="🖼️" value={totalPics} label="Total Pictures" color="cyan" />
               <StatCard icon="📅" value={todayPics} label="Uploaded Today" color="emerald" />
               <StatCard icon="📱" value={uniquePhones} label="Unique Phone Numbers" color="violet" />
-              <StatCard icon="🦊" value={activeCreatures} label="Live Creatures in Forest" color="amber" />
               <StatCard icon="🧾" value={queueTotal} label="Queue Total" color="cyan" />
               <StatCard icon="⚙️" value={queueInProgress} label="Queue In Progress" color="amber" />
               <StatCard icon="⏳" value={queueWaiting} label="Queue Waiting" color="violet" />
@@ -512,42 +624,7 @@ export function OperatorPage() {
 
         {activeTab === "queue" && !loading && (
           <Card title="🧾 Queue Jobs" className="db-card--full">
-            {queueJobsSorted.length === 0 ? (
-              <div className="db-empty">No queue jobs</div>
-            ) : (
-              <div className="db-table-wrap">
-                <table className="db-table">
-                  <thead>
-                    <tr>
-                      <th>Job ID</th>
-                      <th>Status</th>
-                      <th>Queue</th>
-                      <th>Type</th>
-                      <th>Requester</th>
-                      <th>Phone</th>
-                      <th>Progress</th>
-                      <th>Updated</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {queueJobsSorted.map((j) => (
-                      <tr key={j.job_id}>
-                        <td className="db-table__id">{j.job_id}</td>
-                        <td>{j.status}</td>
-                        <td>{j.queue_position ? `${j.queue_position}/${j.queue_total}` : "-"}</td>
-                        <td>{j.requested_type || "-"}</td>
-                        <td>{j.requester_name || j.drawer_name || "-"}</td>
-                        <td>{j.phone_number || "-"}</td>
-                        <td>{Number(j.progress || 0)}%</td>
-                        <td className="db-table__date">
-                          {j.update_timestamp ? new Date(j.update_timestamp).toLocaleString("th-TH") : "-"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <QueueJobsTable rows={queueJobsSorted} />
           </Card>
         )}
       </main>

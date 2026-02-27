@@ -153,6 +153,53 @@ html,
   box-shadow: 0 4px 15px rgba(42, 82, 152, 0.15);
 }
 
+/* ================= Type Button Group ================= */
+.type-btn-group {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.type-btn {
+  flex: 1;
+  padding: 14px 4px;
+  border-radius: 14px;
+  border: 1.5px solid #e1e1e1;
+  background: #fff;
+  color: #555;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.type-btn:hover {
+  background: #f8fbff;
+  border-color: #b9c9e8;
+}
+
+.type-btn.active.sky {
+  background: rgba(56, 189, 248, 0.15);
+  color: #0284c7;
+  border-color: #0284c7;
+}
+
+.type-btn.active.ground {
+  background: rgba(52, 211, 153, 0.15);
+  color: #059669;
+  border-color: #059669;
+}
+
+.type-btn.active.water {
+  background: rgba(96, 165, 250, 0.15);
+  color: #2563eb;
+  border-color: #2563eb;
+}
+
 /* ================= Buttons ================= */
 .btn-row {
   display: flex;

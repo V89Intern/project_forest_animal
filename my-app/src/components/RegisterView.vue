@@ -33,7 +33,7 @@
                 <div class="input-group">
                     <label>ชื่อเล่น <span class="req">*</span></label>
                     <input v-model="nickname" type="text" class="custom-input" placeholder="เช่น น้องมิว"
-                        maxlength="50" />
+                        maxlength="30" />
                 </div>
 
                 <!-- เบอร์โทร -->
@@ -43,7 +43,18 @@
                         placeholder="เช่น 0812345678" maxlength="10"
                         @input="phone = phone.replace(/\D/g, '').slice(0, 10)" />
                     <span v-if="phone && phone.length < 10" class="field-hint">ต้องการ 10 หลัก (ปัจจุบัน {{ phone.length
-                        }} หลัก)</span>
+                    }} หลัก)</span>
+                </div>
+                <div class="input-group">
+                    <label>ประเภทสัตว์ <span class="req">*</span></label>
+                    <div class="type-btn-group">
+                        <button type="button" :class="['type-btn', { 'active sky': creatureType === 'sky' }]"
+                            @click="creatureType = 'sky'">🦅 Sky</button>
+                        <button type="button" :class="['type-btn', { 'active ground': creatureType === 'ground' }]"
+                            @click="creatureType = 'ground'">🦁 Ground</button>
+                        <button type="button" :class="['type-btn', { 'active water': creatureType === 'water' }]"
+                            @click="creatureType = 'water'">🐬 Water</button>
+                    </div>
                 </div>
 
                 <!-- PDPA checkbox -->
@@ -195,11 +206,15 @@ function onFileSelected(e) {
 // ============================================================
 const nickname = ref('')
 const phone = ref('')
+const creatureType = ref('')
 const pdpaAccepted = ref(false)
 const showPdpa = ref(false)
 const submitting = ref(false)
 const statusMsg = ref('')
 const statusType = ref('') // 'success' | 'error'
+const validTypes = ['sky', 'ground', 'water']
+const normalizedType = computed(() => creatureType.value.trim().toLowerCase())
+const isTypeValid = computed(() => validTypes.includes(normalizedType.value))
 
 // Queue info
 const queueInfo = reactive({
@@ -213,6 +228,7 @@ const canSubmit = computed(() =>
     imagePreview.value &&
     nickname.value.trim().length >= 2 &&
     phone.value.length === 10 &&
+    isTypeValid.value &&
     pdpaAccepted.value
 )
 
@@ -230,6 +246,7 @@ async function submitRegister() {
         if (!imagePreview.value) errors.push('เลือกรูป')
         if (nickname.value.trim().length < 2) errors.push('ชื่อเล่น (อย่างน้อย 2 ตัวอักษร)')
         if (phone.value.length !== 10) errors.push('เบอร์โทร 10 หลัก')
+        if (!isTypeValid.value) errors.push('type (sky/ground/water)')
         if (!pdpaAccepted.value) errors.push('ยอมรับ PDPA')
         statusMsg.value = 'กรุณากรอกข้อมูลให้ครบ: ' + errors.join(', ')
         statusType.value = 'error'
@@ -256,7 +273,7 @@ async function submitRegister() {
             },
             body: JSON.stringify({
                 image_data: imageDataUrl.value,
-                type: 'ground',
+                type: normalizedType.value,
                 drawer_name: nickname.value.trim(),
                 phone_number: phone.value,
                 requester_name: nickname.value.trim()
@@ -345,7 +362,7 @@ async function submitRegister() {
             },
             body: JSON.stringify({
                 job_id: jobId,
-                type: 'ground',
+                type: normalizedType.value,
                 name: nickname.value.trim(),
                 drawer_name: nickname.value.trim(),
                 phone_number: phone.value
@@ -363,12 +380,13 @@ async function submitRegister() {
 
         statusMsg.value = 'ลงทะเบียนสำเร็จแล้ว! 🎉'
         statusType.value = 'success'
-        emit('registered', { name: nickname.value, phone: phone.value })
+        emit('registered', { name: nickname.value, phone: phone.value, type: normalizedType.value })
 
         // รีเซ็ตฟอร์ม
         setTimeout(() => {
             nickname.value = ''
             phone.value = ''
+            creatureType.value = ''
             pdpaAccepted.value = false
             imagePreview.value = ''
             imageDataUrl.value = ''

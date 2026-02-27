@@ -60,11 +60,14 @@
           </div>
           <div class="input-group">
             <label>ประเภทสัตว์</label>
-            <select v-model="uploadType" class="custom-input">
-              <option value="ground">Ground</option>
-              <option value="sky">Sky</option>
-              <option value="water">Water</option>
-            </select>
+            <div class="type-btn-group">
+              <button type="button" :class="['type-btn', { 'active sky': uploadType === 'sky' }]"
+                @click="uploadType = 'sky'">🦅 Sky</button>
+              <button type="button" :class="['type-btn', { 'active ground': uploadType === 'ground' }]"
+                @click="uploadType = 'ground'">🦁 Ground</button>
+              <button type="button" :class="['type-btn', { 'active water': uploadType === 'water' }]"
+                @click="uploadType = 'water'">🐬 Water</button>
+            </div>
           </div>
           <div class="input-group">
             <label>เลือกรูปภาพ</label>
@@ -629,7 +632,7 @@ async function fetchLatest() {
     return
   }
   try {
-    const res = await authFetch(`${apiBase}/api/gallery`, { cache: 'no-store' })
+    const res = await fetch(`${apiBase}/api/gallery/latest_public`, { cache: 'no-store' })
     const data = await res.json()
     // console.log('[App] Latest gallery:', data)
     if (data.ok && Array.isArray(data.pictures)) {

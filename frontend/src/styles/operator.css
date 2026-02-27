@@ -532,6 +532,56 @@
   text-decoration: underline;
 }
 
+.db-pagination {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.db-pagination__meta {
+  color: rgba(255, 255, 255, .5);
+  font-size: .76rem;
+}
+
+.db-pagination__controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.db-page-btn {
+  min-width: 34px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .03);
+  color: #d9e6f8;
+  font-size: .78rem;
+  cursor: pointer;
+  transition: background .18s, border-color .18s;
+  font-family: inherit;
+}
+
+.db-page-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .08);
+  border-color: rgba(255, 255, 255, .28);
+}
+
+.db-page-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.db-page-btn--active {
+  background: rgba(78, 204, 163, .2);
+  border-color: rgba(78, 204, 163, .55);
+  color: #8ff4d2;
+}
+
 /* ── Badges ────────────────────────────────────────────────────────────────── */
 .db-badge {
   display: inline-block;
