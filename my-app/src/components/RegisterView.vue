@@ -45,6 +45,15 @@
                     <span v-if="phone && phone.length < 10" class="field-hint">ต้องการ 10 หลัก (ปัจจุบัน {{ phone.length
                         }} หลัก)</span>
                 </div>
+                <div class="input-group">
+                    <label>Type <span class="req">*</span></label>
+                    <select v-model="creatureType" class="custom-input custom-input--select" required>
+                        <option value="" disabled>เลือก Type</option>
+                        <option value="sky">sky</option>
+                        <option value="ground">ground</option>
+                        <option value="water">water</option>
+                    </select>
+                </div>
 
                 <!-- PDPA checkbox -->
                 <div class="pdpa-row" @click="showPdpa = true">
@@ -190,11 +199,15 @@ function onFileSelected(e) {
 // ============================================================
 const nickname = ref('')
 const phone = ref('')
+const creatureType = ref('')
 const pdpaAccepted = ref(false)
 const showPdpa = ref(false)
 const submitting = ref(false)
 const statusMsg = ref('')
 const statusType = ref('') // 'success' | 'error'
+const validTypes = ['sky', 'ground', 'water']
+const normalizedType = computed(() => creatureType.value.trim().toLowerCase())
+const isTypeValid = computed(() => validTypes.includes(normalizedType.value))
 
 // Queue info
 const queueInfo = reactive({
@@ -208,6 +221,7 @@ const canSubmit = computed(() =>
     imagePreview.value &&
     nickname.value.trim().length >= 2 &&
     phone.value.length === 10 &&
+    isTypeValid.value &&
     pdpaAccepted.value
 )
 
@@ -225,6 +239,7 @@ async function submitRegister() {
         if (!imagePreview.value) errors.push('เลือกรูป')
         if (nickname.value.trim().length < 2) errors.push('ชื่อเล่น (อย่างน้อย 2 ตัวอักษร)')
         if (phone.value.length !== 10) errors.push('เบอร์โทร 10 หลัก')
+        if (!isTypeValid.value) errors.push('type (sky/ground/water)')
         if (!pdpaAccepted.value) errors.push('ยอมรับ PDPA')
         statusMsg.value = 'กรุณากรอกข้อมูลให้ครบ: ' + errors.join(', ')
         statusType.value = 'error'
@@ -251,7 +266,7 @@ async function submitRegister() {
             },
             body: JSON.stringify({
                 image_data: imageDataUrl.value,
-                type: 'ground',
+                type: normalizedType.value,
                 drawer_name: nickname.value.trim(),
                 phone_number: phone.value,
                 requester_name: nickname.value.trim()
@@ -340,7 +355,7 @@ async function submitRegister() {
             },
             body: JSON.stringify({
                 job_id: jobId,
-                type: 'ground',
+                type: normalizedType.value,
                 name: nickname.value.trim(),
                 drawer_name: nickname.value.trim(),
                 phone_number: phone.value
@@ -358,12 +373,13 @@ async function submitRegister() {
 
         statusMsg.value = 'ลงทะเบียนสำเร็จแล้ว! 🎉'
         statusType.value = 'success'
-        emit('registered', { name: nickname.value, phone: phone.value })
+        emit('registered', { name: nickname.value, phone: phone.value, type: normalizedType.value })
 
         // รีเซ็ตฟอร์ม
         setTimeout(() => {
             nickname.value = ''
             phone.value = ''
+            creatureType.value = ''
             pdpaAccepted.value = false
             imagePreview.value = ''
             imageDataUrl.value = ''
