@@ -1,0 +1,132 @@
+/* frontend/src/styles/spawn.css */
+#spawn-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(5, 15, 30, 0.7), rgba(0, 0, 0, 0.96));
+  z-index: 400;
+  animation: fadeInSpawn 0.4s ease forwards;
+}
+
+@keyframes fadeInSpawn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* phase-egg */
+.egg-container {
+  transform-origin: bottom center;
+  animation: eggShake 1.8s cubic-bezier(.36,.07,.19,.97) both;
+  filter: drop-shadow(0 0 40px rgba(255, 230, 150, 0.5));
+}
+
+.magical-egg {
+  animation: eggPulse 1.5s infinite alternate;
+}
+
+@keyframes eggPulse {
+  from { filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.4)); }
+  to { filter: drop-shadow(0 0 25px rgba(255, 255, 255, 0.8)); }
+}
+
+/* Increasing intensity shake */
+@keyframes eggShake {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
+  10%, 30%, 50%, 70% { transform: translate3d(-4px, 0, 0) rotate(-5deg) scale(1.02); }
+  20%, 40%, 60% { transform: translate3d(4px, 0, 0) rotate(5deg) scale(1.02); }
+  80% { transform: translate3d(-8px, 0, 0) rotate(-10deg) scale(1.08); filter: brightness(1.2); }
+  85% { transform: translate3d(8px, 0, 0) rotate(10deg) scale(1.1); filter: brightness(1.5); }
+  90% { transform: translate3d(-10px, -5px, 0) rotate(-15deg) scale(1.15); filter: brightness(2); }
+  95% { transform: translate3d(10px, 5px, 0) rotate(15deg) scale(1.2); filter: brightness(3); }
+  100% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1.3); filter: brightness(5); }
+}
+
+/* The crack path */
+.egg-crack {
+  animation: crackAppear 1.8s forwards;
+}
+
+@keyframes crackAppear {
+  0%, 70% { opacity: 0; stroke-dasharray: 100; stroke-dashoffset: 100; }
+  75% { opacity: 1; stroke-dashoffset: 80; }
+  85% { stroke-dashoffset: 40; }
+  95% { stroke-dashoffset: 0; stroke-width: 6; }
+  100% { opacity: 1; stroke-dashoffset: 0; stroke-width: 8; stroke: #fff; }
+}
+
+/* phase-flash */
+.flash-overlay {
+  position: absolute;
+  inset: 0;
+  background: white;
+  animation: flashBang 0.2s ease-out forwards;
+}
+
+@keyframes flashBang {
+  0% { opacity: 0; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* phase-reveal */
+#spawn-overlay-image {
+  max-width: 80vw;
+  max-height: 80vh;
+  object-fit: contain;
+  /* Use CSS custom property if --accent-glow exists, else fallback */
+  filter: drop-shadow(0 0 40px var(--accent-glow, rgba(124, 255, 190, 0.8)));
+  animation: animalPopIn 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes animalPopIn {
+  0% { transform: scale(0.3) translateY(50px); opacity: 0; filter: brightness(3); }
+  50% { filter: brightness(1); }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* Magic Particles around the egg/animal */
+.magic-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.particle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 10px 2px rgba(255, 255, 255, 0.8), 0 0 20px 5px rgba(255, 230, 100, 0.6);
+  opacity: 0;
+  /* Math using CSS variables for random-like effects */
+  transform: rotate(calc(var(--i) * 30deg)) translateY(0) scale(1);
+  animation: particleFly 2s ease-out infinite;
+  animation-delay: calc(var(--i) * 0.1s);
+}
+
+.phase-idle .particle, .phase-flash .particle {
+  display: none;
+}
+
+.phase-reveal .particle {
+  animation: particleBurst 1s ease-out forwards;
+  animation-delay: 0s; /* Overwrite standard delay so they burst instantly */
+}
+
+@keyframes particleFly {
+  0% { opacity: 0; transform: rotate(calc(var(--i) * 30deg)) translateY(50px) scale(0); }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(calc(var(--i) * 30deg)) translateY(180px) scale(0.5); }
+}
+
+@keyframes particleBurst {
+  0% { opacity: 1; transform: rotate(calc(var(--i) * 30deg)) translateY(0px) scale(1); }
+  100% { opacity: 0; transform: rotate(calc(var(--i) * 30deg)) translateY(300px) scale(0); }
+}
