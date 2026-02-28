@@ -752,12 +752,14 @@ export function initializeForestScene(config) {
   function createAnimalSprite(animalData) {
     loader.load(api.assetUrl(animalData.url), (texture) => {
       if (destroyed) return;
+      
       const processed = buildCleanTextureFromImage(texture.image);
       const mat = new THREE.SpriteMaterial({
         map: processed || texture,
         transparent: true,
         alphaTest: 0.05,
       });
+      
       const sprite = new THREE.Sprite(mat);
       sprite.scale.set(0, 0, 0);
 
@@ -778,6 +780,7 @@ export function initializeForestScene(config) {
         } while (Math.abs(x - getRiverCenterX(z)) < 26);
         y = 2.5;
       }
+      
       sprite.position.set(x, y, z);
       sprite.userData = {
         type: animalData.type,
@@ -785,14 +788,17 @@ export function initializeForestScene(config) {
         targetScale: 5,
         filename: animalData.filename
       };
+
       const nameTag = buildNameTagSprite(toDisplayName(animalData));
       nameTag.position.set(x, y + 4.8, z);
       scene.add(nameTag);
       sprite.userData.nameTag = nameTag;
+      
       scene.add(sprite);
       renderedAnimals.add(animalData.filename);
       onCountChange(spawnedAnimals.size);
       reportForestState();
+      
       if (pendingFocusFilename && pendingFocusFilename === normalizeFilename(animalData.filename)) {
         focusOnAnimal(pendingFocusFilename, { holdMs: pendingFocusHoldMs });
       }
@@ -804,7 +810,7 @@ export function initializeForestScene(config) {
     isSpawning = true;
     const animal = spawnQueue.shift();
     onSpawnStart(animal);
-    await sleep(3000);
+    await sleep(6200);
     if (destroyed) return;
     onSpawnEnd();
     createAnimalSprite(animal);
@@ -1116,20 +1122,65 @@ export function initializeForestScene(config) {
     // Animal sprites
     scene.traverse((obj) => {
       if (obj.isSprite && obj.userData.type) {
-        if (obj.scale.x < obj.userData.targetScale)
-          obj.scale.set(obj.scale.x + 0.1, obj.scale.y + 0.1, 1);
+        // Handle scaling in
+        if (obj.scale.x < obj.userData.targetScale && !obj.userData.fullySpawned) {
+           obj.scale.set(obj.scale.x + 0.1, obj.scale.y + 0.1, 1);
+           if (obj.scale.x >= obj.userData.targetScale) obj.userData.fullySpawned = true;
+        }
+
         const off = obj.userData.offset;
+        const baseScale = obj.userData.targetScale;
+        
+        // 1. Squash & Stretch (Scale X / Scale Y inversion)
+        // 2. Wobble (Rotation Z)
+        // 3. Hover / Move
+        
         if (obj.userData.type === "sky") {
+          // Sky animals: Fly around, gentle wing flap squash/stretch, slight tilt
           obj.position.x += Math.cos(now + off) * 0.05;
           obj.position.y += Math.sin(now * 2 + off) * 0.02;
+          
+          const flap = Math.sin(now * 8 + off);
+          if (obj.userData.fullySpawned) {
+            obj.scale.set(baseScale * (1 + flap * 0.05), baseScale * (1 - flap * 0.08), 1);
+          }
+          // Tilt into the turn direction
+          obj.material.rotation = Math.cos(now + off) * -0.15;
+          
         } else if (obj.userData.type === "water") {
+          // Water animals: Swim forward, gentle wobble side to side, horizontal squash
           obj.position.z += Math.sin(now + off) * 0.04;
+          
+          const swim = Math.sin(now * 3 + off);
+          if (obj.userData.fullySpawned) {
+             obj.scale.set(baseScale * (1 - swim * 0.04), baseScale * (1 + swim * 0.04), 1);
+          }
+          obj.material.rotation = Math.sin(now * 2 + off) * 0.08;
+          
         } else {
-          obj.position.y = 2.5 + Math.abs(Math.sin(now * 5 + off)) * 0.8;
+          // Ground animals: Jump/Bounce (Y position), strong squash on landing, stretch in air, wobble walking
+          const hop = Math.abs(Math.sin(now * 4 + off)); // 0 to 1
+           
+          // Strong squash when on the ground (hop near 0), stretch when in air (hop near 1)
+          const stretch = hop; 
+          const squash = 1.0 - hop;
+          
+          if (obj.userData.fullySpawned) {
+            // scale X: narrower in air, wider on ground
+            // scale Y: taller in air, shorter on ground
+            obj.scale.set(baseScale * (1 - stretch * 0.1 + squash * 0.15), baseScale * (1 + stretch * 0.2 - squash * 0.1), 1);
+          }
+          
+          obj.position.y = 2.5 + hop * 1.5;
+          
+          // Wobble side to side
+          obj.material.rotation = Math.sin(now * 4 + off) * 0.12; 
         }
+
         const nameTag = obj.userData.nameTag;
         if (nameTag?.isSprite) {
           nameTag.position.set(obj.position.x, obj.position.y + 4.8, obj.position.z);
+          // Don't wobble the text, just fade it in
           nameTag.material.opacity = Math.min(1, Math.max(0, obj.scale.x / 2));
         }
       }

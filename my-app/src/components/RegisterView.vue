@@ -43,7 +43,7 @@
                         placeholder="เช่น 0812345678" maxlength="10"
                         @input="phone = phone.replace(/\D/g, '').slice(0, 10)" />
                     <span v-if="phone && phone.length < 10" class="field-hint">ต้องการ 10 หลัก (ปัจจุบัน {{ phone.length
-                    }} หลัก)</span>
+                        }} หลัก)</span>
                 </div>
                 <div class="input-group">
                     <label>ประเภทสัตว์ <span class="req">*</span></label>
@@ -158,6 +158,7 @@ function onFileSelected(e) {
 
     const img = new Image()
     const objectUrl = URL.createObjectURL(file)
+
     img.onload = () => {
         URL.revokeObjectURL(objectUrl)
         try {

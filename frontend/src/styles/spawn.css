@@ -32,28 +32,42 @@
 }
 
 /* Increasing intensity shake */
+.egg-container {
+  transform-origin: bottom center;
+  animation: eggShake 5s cubic-bezier(.36,.07,.19,.97) both;
+  filter: drop-shadow(0 0 40px rgba(255, 230, 150, 0.5));
+}
+
 @keyframes eggShake {
   0% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
-  10%, 30%, 50%, 70% { transform: translate3d(-4px, 0, 0) rotate(-5deg) scale(1.02); }
-  20%, 40%, 60% { transform: translate3d(4px, 0, 0) rotate(5deg) scale(1.02); }
-  80% { transform: translate3d(-8px, 0, 0) rotate(-10deg) scale(1.08); filter: brightness(1.2); }
-  85% { transform: translate3d(8px, 0, 0) rotate(10deg) scale(1.1); filter: brightness(1.5); }
-  90% { transform: translate3d(-10px, -5px, 0) rotate(-15deg) scale(1.15); filter: brightness(2); }
-  95% { transform: translate3d(10px, 5px, 0) rotate(15deg) scale(1.2); filter: brightness(3); }
-  100% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1.3); filter: brightness(5); }
+  /* Gentle rocking */
+  10%, 20%, 30% { transform: translate3d(-3px, 0, 0) rotate(-3deg) scale(1.01); }
+  15%, 25%, 35% { transform: translate3d(3px, 0, 0) rotate(3deg) scale(1.01); }
+  /* Getting more intense */
+  40%, 50%, 60% { transform: translate3d(-6px, 0, 0) rotate(-8deg) scale(1.04); }
+  45%, 55%, 65% { transform: translate3d(6px, 0, 0) rotate(8deg) scale(1.04); }
+  /* Violent shake before crack */
+  75% { transform: translate3d(-10px, -2px, 0) rotate(-12deg) scale(1.08); filter: brightness(1.2); }
+  80% { transform: translate3d(10px, 2px, 0) rotate(12deg) scale(1.1); filter: brightness(1.5); }
+  /* Suspense pause - expanding glowing and cracking */
+  85%, 95% { transform: translate3d(0, 5px, 0) rotate(0deg) scale(1.25); filter: brightness(3); filter: drop-shadow(0 0 100px rgba(255, 255, 255, 1)); }
+  100% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1.35); filter: brightness(5); }
 }
 
 /* The crack path */
-.egg-crack {
-  animation: crackAppear 1.8s forwards;
+.egg-crack, .egg-crack-core {
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  animation: crackAppear 5s forwards;
 }
 
 @keyframes crackAppear {
-  0%, 70% { opacity: 0; stroke-dasharray: 100; stroke-dashoffset: 100; }
-  75% { opacity: 1; stroke-dashoffset: 80; }
-  85% { stroke-dashoffset: 40; }
-  95% { stroke-dashoffset: 0; stroke-width: 6; }
-  100% { opacity: 1; stroke-dashoffset: 0; stroke-width: 8; stroke: #fff; }
+  0%, 60% { opacity: 0; stroke-dashoffset: 1200; }
+  /* crack starts forming rapidly */
+  70% { opacity: 1; stroke-dashoffset: 900; }
+  80% { stroke-dashoffset: 300; filter: brightness(1.2); }
+  /* fully cracked during the suspense pause, glowing brightly */
+  85%, 100% { opacity: 1; stroke-dashoffset: 0; filter: brightness(2); }
 }
 
 /* phase-flash */

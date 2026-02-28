@@ -12,13 +12,19 @@ const MagicalEgg = () => (
   >
     <defs>
       <linearGradient id="eggGrad" x1="50" y1="0" x2="50" y2="130" gradientUnits="userSpaceOnUse">
-        <stop stopColor="#fff8e7" />
-        <stop offset="0.7" stopColor="#ffe6ba" />
-        <stop offset="1" stopColor="#ffd285" />
+        <stop offset="0" stopColor="#966d48" />
+        <stop offset="0.6" stopColor="#5f3e23" />
+        <stop offset="1" stopColor="#301e0f" />
       </linearGradient>
-      <filter id="eggGlow" x="-20%" y="-20%" width="140%" height="140%">
-        <feGaussianBlur stdDeviation="8" result="blur" />
-        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+      <filter id="eggGlow" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feComponentTransfer in="blur" result="glow">
+          <feFuncA type="linear" slope="2" />
+        </feComponentTransfer>
+        <feMerge>
+          <feMergeNode in="glow" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
       </filter>
     </defs>
     
@@ -26,17 +32,43 @@ const MagicalEgg = () => (
     <path 
       d="M50 0C25 0 5 40 5 80C5 110 25 130 50 130C75 130 95 110 95 80C95 40 75 0 50 0Z" 
       fill="url(#eggGrad)" 
-      filter="url(#eggGlow)"
     />
     
-    {/* Decorative Spots/Patterns */}
-    <circle cx="30" cy="90" r="8" fill="#ffffff" opacity="0.6" />
-    <circle cx="70" cy="75" r="12" fill="#ffffff" opacity="0.4" />
-    <circle cx="50" cy="110" r="6" fill="#ffffff" opacity="0.5" />
-    <ellipse cx="40" cy="40" rx="10" ry="15" fill="#ffffff" opacity="0.3" transform="rotate(-20 40 40)" />
-    
-    {/* Cracks (hidden initially, appears during the end of the shake) */}
-    <path className="egg-crack" d="M30 130 Q40 100 50 90 T40 60 T60 40" stroke="#ffd285" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0" />
+    {/* Decorative Darker "Scales/Spots" for Texture */}
+    <path d="M15 60 Q 20 65 15 70" stroke="#3d2613" strokeWidth="2" fill="none" />
+    <path d="M30 40 Q 35 45 30 50" stroke="#3d2613" strokeWidth="2" fill="none" />
+    <path d="M70 50 Q 65 55 70 60" stroke="#3d2613" strokeWidth="2" fill="none" />
+    <path d="M85 80 Q 80 85 85 90" stroke="#3d2613" strokeWidth="2" fill="none" />
+    <path d="M40 90 Q 45 95 40 100" stroke="#1f1207" strokeWidth="2" fill="none" />
+    <path d="M60 85 Q 65 90 60 95" stroke="#1f1207" strokeWidth="2" fill="none" />
+    <path d="M25 100 Q 30 105 25 110" stroke="#1f1207" strokeWidth="2" fill="none" />
+    <path d="M75 105 Q 80 110 75 115" stroke="#1f1207" strokeWidth="2" fill="none" />
+
+    {/* Intricate Branching Cracks (Glowing Yellow) */}
+    <path className="egg-crack" 
+      d="
+        M 10 50 L 22 55 L 28 48 L 40 58 L 48 50 L 58 58 L 68 48 L 82 55 L 92 48 
+        M 22 55 L 20 70 L 28 85 
+        M 40 58 L 35 75 L 45 90 L 40 105
+        M 58 58 L 62 75 L 55 90 L 60 105
+        M 82 55 L 85 70 L 78 85
+        M 48 50 L 50 40 
+        M 28 48 L 30 35
+        M 68 48 L 65 35
+      " 
+      stroke="#ffe770" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="miter" fill="none" opacity="0" 
+      filter="url(#eggGlow)"
+    />
+    <path className="egg-crack-core" 
+      d="
+        M 10 50 L 22 55 L 28 48 L 40 58 L 48 50 L 58 58 L 68 48 L 82 55 L 92 48 
+        M 22 55 L 20 70 L 28 85 
+        M 40 58 L 35 75 L 45 90 L 40 105
+        M 58 58 L 62 75 L 55 90 L 60 105
+        M 82 55 L 85 70 L 78 85
+      " 
+      stroke="#ffffff" strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="miter" fill="none" opacity="0" 
+    />
   </svg>
 );
 
@@ -47,18 +79,18 @@ export function CinematicSpawnOverlay({ animal }) {
     if (animal) {
       setPhase("egg");
       
-      // The entire cinematic overlay is rendered for exactly 3000ms by forestScene.js
-      // 0ms - 1800ms: Egg shaking and cracking
-      // 1800ms - 2000ms: Flash overlay
-      // 2000ms - 3000ms: Reveal the animal
+      // The entire cinematic overlay is rendered for exactly 6200ms by forestScene.js
+      // 0ms - 5000ms: Egg shaking, glowing, and cracking
+      // 5000ms - 5200ms: Flash overlay
+      // 5200ms - 6200ms: Reveal the animal
       
       const flashTimer = setTimeout(() => {
         setPhase("flash");
-      }, 1800);
+      }, 5000);
       
       const revealTimer = setTimeout(() => {
         setPhase("reveal");
-      }, 2000);
+      }, 5200);
 
       return () => {
         clearTimeout(flashTimer);
