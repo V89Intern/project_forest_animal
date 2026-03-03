@@ -11,21 +11,34 @@
             <!-- ===== อัปโหลดรูป ===== -->
             <div class="upload-section">
                 <!-- ยังไม่เลือกรูป -->
-                <div v-if="!imagePreview" class="upload-drop-zone" @click="triggerFilePicker">
-                    <div class="upload-icon">📸</div>
-                    <p class="upload-text">กดเพื่อถ่ายรูป</p>
-                    <p class="upload-hint">* ถ่ายแนวตั้ง และให้เห็นกรอบสี่เหลียม *</p>
+                <div v-if="!imagePreview" class="upload-choice">
+                    <div class="upload-drop-zone" @click="showCamera = true">
+                        <div class="upload-icon">📷</div>
+                        <p class="upload-text">เปิดกล้องสแกน</p>
+                        <p class="upload-hint">* วางกระดาษ แล้วถ่ายอัตโนมัติ *</p>
+                    </div>
+                    <div class="upload-drop-zone upload-alt" @click="triggerFilePicker">
+                        <div class="upload-icon">📁</div>
+                        <p class="upload-text">เลือกจากคลังรูป</p>
+                        <p class="upload-hint">* เลือกรูปที่ถ่ายไว้แล้ว *</p>
+                    </div>
                 </div>
 
                 <!-- preview รูปที่เลือก -->
                 <div v-else class="preview-box">
                     <img :src="imagePreview" alt="preview" class="preview-img" />
-                    <button class="change-btn" @click="triggerFilePicker">🔄 เปลี่ยนรูป</button>
+                    <div class="preview-btn-row">
+                        <button class="change-btn" @click="showCamera = true">📷 สแกนใหม่</button>
+                        <button class="change-btn" @click="triggerFilePicker">📁 เลือกไฟล์</button>
+                    </div>
                 </div>
 
                 <input ref="fileInputEl" type="file" accept="image/*" capture="environment" class="hidden-input"
                     @change="onFileSelected" />
             </div>
+
+            <!-- ===== Camera Scanner Overlay ===== -->
+            <CameraScanner v-if="showCamera" @captured="onCameraCaptured" @close="showCamera = false" />
 
             <!-- ===== ฟอร์ม ===== -->
             <div class="reg-form">
@@ -107,6 +120,7 @@
 <script setup>
 import { ref, computed, reactive } from 'vue'
 import PdpaModal from './PdpaModal.vue'
+import CameraScanner from './CameraScanner.vue'
 
 // ============================================================
 // Props / Emits
@@ -124,9 +138,18 @@ const fileInputEl = ref(null)
 const imageFile = ref(null)      // File object
 const imagePreview = ref('')     // data URL preview
 const imageDataUrl = ref('')     // data URL สำหรับส่ง API
+const showCamera = ref(false)    // เปิด/ปิดกล้องสแกน
 
 function triggerFilePicker() {
     fileInputEl.value?.click()
+}
+
+function onCameraCaptured(dataUrl) {
+    showCamera.value = false
+    imagePreview.value = dataUrl
+    imageDataUrl.value = dataUrl
+    statusMsg.value = '📸 ถ่ายจากกล้องเรียบร้อย!'
+    statusType.value = 'success'
 }
 
 function onFileSelected(e) {

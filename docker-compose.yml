@@ -9,9 +9,16 @@ services:
       - FLASK_DEBUG=0
       - DATABASE_URL=postgresql://V89adminsql:V89Sql@103.114.203.22:9989/Forent
       - JWT_SECRET=change-me-in-production
+      # ให้ ONNX (สมอง AI) เลิกพยายามแย่ง Thread ของ CPU บังคับบน Server
+      - OMP_NUM_THREADS=4
+      - OMP_WAIT_POLICY=PASSIVE
     volumes:
       - dmf_outputs:/app/outputs
       - dmf_static_runtime:/app/static
+      # เก็บโมเดล AI rembg ไว้จะได้ไม่ต้องโหลดใหม่ตอนรัน Docker
+      - rembg_models:/root/.u2net
+      # เก็บ Template Mask ที่สกัดไว้แล้ว จะได้ไม่ต้องทำใหม่
+      - template_processed:/app/backend/templates/processed
     ports:
       - "809:5000"    # OpenResty → 809 → Flask HTTP
     restart: unless-stopped
@@ -33,3 +40,5 @@ volumes:
   pgdata:
   dmf_outputs:
   dmf_static_runtime:
+  rembg_models:
+  template_processed:

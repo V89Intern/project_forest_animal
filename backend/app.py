@@ -26,6 +26,7 @@ import numpy as np
 from backend.scanner_module import (
     capture_and_process_single_frame,
     process_provided_frame,
+    _load_templates
 )
 from backend.db import init_db, query as db_query
 from backend.auth import (
@@ -1245,6 +1246,21 @@ def download_animation(filename: str):
     if not file_path.exists() or not file_path.is_file():
         abort(404)
     return send_from_directory(ANIMATIONS_DIR, filename, as_attachment=True)
+
+
+
+# ==============================================================================
+# Preload Templates on Startup in Background
+# ==============================================================================
+def preload_templates_bg():
+    print("[System] Bounding background template caching...")
+    try:
+        _load_templates()
+        print("[System] Background template caching complete!")
+    except Exception as e:
+        print(f"[System] Error preloading templates: {e}")
+
+threading.Thread(target=preload_templates_bg, daemon=True, name="template-preloader").start()
 
 
 if __name__ == "__main__":

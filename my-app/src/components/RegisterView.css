@@ -42,6 +42,42 @@
   width: 100%;
 }
 
+.upload-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.upload-choice .upload-drop-zone {
+  aspect-ratio: 1/1;
+}
+
+.upload-alt {
+  background: #f5f0e8 !important;
+  border-color: #d4c9a8 !important;
+}
+.upload-alt:hover {
+  background: #efe8da !important;
+  border-color: #bfb48e !important;
+}
+.upload-alt .upload-text {
+  color: #7d6b3a !important;
+}
+
+.preview-btn-row {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+}
+
+@media (max-width: 380px) {
+  .upload-choice {
+    grid-template-columns: 1fr;
+  }
+}
+
 .hidden-input {
   display: none;
 }

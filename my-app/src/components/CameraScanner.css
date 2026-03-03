@@ -1,0 +1,165 @@
+.camera-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.camera-video-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  aspect-ratio: 4/3;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.camera-video-wrap video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.camera-video-wrap canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Status bar */
+.camera-status-bar {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.camera-status-text {
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 500;
+  text-align: center;
+  text-shadow: 0 1px 4px rgba(0,0,0,.6);
+  min-height: 1.5em;
+}
+
+.camera-status-text.detected {
+  color: #4caf50;
+  font-weight: 700;
+  animation: pulse-green .8s ease infinite alternate;
+}
+
+@keyframes pulse-green {
+  from { opacity: .8; }
+  to   { opacity: 1; text-shadow: 0 0 12px rgba(76,175,80,.7); }
+}
+
+.camera-countdown {
+  font-size: 2.4rem;
+  font-weight: 800;
+  color: #4caf50;
+  text-shadow: 0 0 20px rgba(76,175,80,.6);
+  animation: pop .3s ease;
+}
+
+@keyframes pop {
+  0%   { transform: scale(0.5); opacity: 0; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
+/* Buttons */
+.camera-btn-row {
+  margin-top: 20px;
+  display: flex;
+  gap: 12px;
+}
+
+.camera-btn {
+  padding: 12px 28px;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .2s;
+}
+
+.camera-btn.close {
+  background: rgba(255,255,255,.15);
+  color: #fff;
+  backdrop-filter: blur(8px);
+}
+.camera-btn.close:hover {
+  background: rgba(255,255,255,.25);
+}
+
+.camera-btn.capture {
+  background: linear-gradient(135deg, #4caf50, #2e7d32);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(76,175,80,.4);
+}
+.camera-btn.capture:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(76,175,80,.5);
+}
+.camera-btn.capture:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Flash animation when capturing */
+.camera-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+  animation: flash-anim .4s ease;
+}
+
+@keyframes flash-anim {
+  0%   { opacity: .8; }
+  100% { opacity: 0; }
+}
+
+/* Processing overlay */
+.camera-processing {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.7);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 20;
+  border-radius: 12px;
+}
+
+.camera-processing .spinner-cam {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255,255,255,.2);
+  border-top-color: #4caf50;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.camera-processing p {
+  color: #fff;
+  font-size: .95rem;
+}
