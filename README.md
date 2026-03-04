@@ -1,271 +1,217 @@
 # Digital Magic Forest
 
-ระบบ Interactive Installation สำหรับสแกนภาพวาด, ลบพื้นหลัง, อนุมัติผ่านหน้า Operator และ Spawn สัตว์เข้าโลกป่า 3D บนเว็บ
+ระบบสแกนภาพวาดสัตว์ -> ลบพื้นหลัง -> อนุมัติ -> แสดงในฉากป่า 3D แบบ realtime
 
-## สรุปสั้นๆ
+อัปเดตล่าสุด: 2026-03-04 (สรุปสถานะโค้ดและการใช้งานจริง)
 
-- ผู้ใช้งานสแกนภาพจากหน้า Operator -> Backend ทำ QR + Warp + RMBG
-- ตรวจภาพตัวอย่าง (preview) แล้วกด Approve
-- ไฟล์ถูกย้ายไป `static/animations`
-- หน้า Forest ตรวจไฟล์ใหม่แล้ว Spawn สัตว์แบบ Cinematic
+## TL;DR
 
-## ภาพรวมระบบ
+- Deployment ปัจจุบันใช้ `backend` + `my-app` (Vue) ผ่าน `docker-compose.yml`
+- ไฟล์สัตว์ที่ใช้งานจริงเป็น PNG ใน `static/animations/`
+- การ "อนิเมชันสัตว์" ทำที่ frontend runtime (Three.js sprite motion) ไม่ได้ใช้ `backend/animation_worker.py`
+- `backend/sheets_service.py` ยังไม่มีจุดเรียกใช้ในระบบหลัก
 
-โปรเจกต์ถูกแยกเป็น 2 ส่วนสำหรับ deploy:
+## สถาปัตยกรรมปัจจุบัน
 
-- `backend/` บริการ Flask API (pipeline + endpoint)
-- `frontend/` React SPA (Vite) สำหรับ build/deploy แยก
+### Runtime ที่ใช้งานจริง (ตาม `docker-compose.yml`)
 
-เส้นทางหลักของหน้าเว็บ:
-- `/operator` สำหรับควบคุม Capture/Review/Approve
-- `/forest` สำหรับแสดงผลสัตว์ในฉาก 3D แบบเรียลไทม์
+- `backend` (Flask API, CV pipeline, queue, PostgreSQL integration)
+- `myapp` (Vue frontend ที่เรียก API backend)
+
+### โค้ดอีกชุดที่ยังอยู่ใน repo
+
+- `frontend/` (React + Three.js)
+  - ใช้สำหรับ flow/operator-forest อีกชุด
+  - ไม่ได้ถูกผูกเข้า compose ปัจจุบัน
 
 ## Tech Stack
 
-- Backend
-  - Python 3.10+ (แนะนำ 3.10)
-  - Flask
-  - Flask-CORS
-- Scanner / CV Pipeline
-  - OpenCV (`cv2`)
-  - pyzbar (อ่าน QR)
-  - rembg (ลบพื้นหลัง)
-  - NumPy
-- Frontend
-  - React 18 (Vite + JSX)
-  - React Router
-  - Three.js (ฉาก Forest)
-  - Tailwind CSS CDN (สไตล์หน้า Launcher/Operator)
+### Backend
 
-## โครงสร้างโปรเจกต์
+- Python 3.10
+- Flask + Flask-CORS
+- PostgreSQL (`psycopg2`)
+- JWT (`PyJWT`)
+- OpenCV + NumPy
+- rembg + onnxruntime
 
-- `backend/app.py`  
-  Flask API, สถานะ pipeline, และการเสิร์ฟไฟล์ runtime
+### Frontend
 
-- `backend/scanner_module.py`  
-  ตรรกะ scanner (QR detection, contour detection, perspective warp, RMBG)
+- Runtime ปัจจุบัน: Vue 3 + Vite (`my-app/`)
+- ชุดแยกใน repo: React 18 + Three.js (`frontend/`)
 
-- `backend/requirements.txt`  
-  dependency ของ backend
+### Infrastructure
 
-- `frontend/`  
-  React project (Vite) สำหรับ build ฝั่งหน้าเว็บ
+- Docker Compose
+- Nginx (ใน container frontend)
+- โฟลเดอร์ runtime data: `outputs/`, `static/animations/`
 
-- `frontend/src/main.jsx`  
-  entry ของ React + route (`/operator`, `/forest`)
+## Pipeline
 
-- `frontend/src/lib/api.js`  
-  API service รวมสำหรับเรียก Flask endpoint
+### Capture/Approve Pipeline (Backend)
 
-- `frontend/src/lib/forestScene.js`  
-  Three.js scene initializer
+1. ผู้ใช้ส่งภาพผ่าน `POST /api/capture_process`
+2. Backend เข้า queue (`Queue_Job`) และ worker ประมวลผลภาพด้วย `scanner_module.py`
+3. ได้ preview ที่ `static/rmbg_temp.png`
+4. อนุมัติผ่าน `POST /api/approve`
+5. Backend ย้ายไฟล์ไป `static/animations/<type>_<timestamp>_<id>.png`
 
-- `frontend/dist/`  
-  output หลัง build สำหรับ deploy
+### Forest Render Pipeline (Frontend)
 
-- `static/animations/`  
-  ไฟล์ที่ approve แล้วและให้ Forest นำไปแสดงผล
+1. Frontend เรียก `GET /api/latest_animals`
+2. โหลดไฟล์ PNG จาก `static/animations/`
+3. สร้าง sprite ใน Three.js scene
+4. ใส่ motion ตามประเภทสัตว์ (`sky`/`water`/`ground`)
+5. ส่ง heartbeat กลับผ่าน `POST /api/forest_state`
 
-- `static/rmbg_temp.png`  
-  preview ล่าสุดก่อน approve
+## Scanner Module Pipeline + Models
 
-- `outputs/`  
-  ไฟล์ภาพที่ผ่านการสแกน (`{type}_{timestamp}.png`)
+อ้างอิงไฟล์: `backend/scanner_module.py`
 
-- `outputs/rmbg/`  
-  ประวัติไฟล์ preview
+### Pipeline ใน `scanner_module.py`
 
-## ลำดับการทำงาน (Pipeline)
+1. รับภาพเข้ามา (`process_provided_frame` หรือ `capture_and_process_single_frame`)
+2. หา document contour (กระดาษ) ด้วย OpenCV (`find_document_contour`)
+3. ทำ perspective transform ให้เป็นมุมตรง (`four_point_transform`)
+4. crop ขอบกระดาษออกบางส่วน
+5. ปรับคุณภาพสี/แสง (`enhance_image_color`)
+6. พยายามจับคู่ template (`_match_template`) ด้วย SIFT + FLANN
+7. ถ้า template match สำเร็จ ใช้ mask จาก template แล้วถมรู (`_fill_alpha_holes`)
+8. ถ้า match ไม่สำเร็จ ใช้ rembg ลบพื้นหลัง (`remove(...)`) แล้ว post-process alpha
+9. บันทึกผลเป็น PNG โปร่งใส (`save_processed_image`)
 
-1. Operator เปิดกล้อง (`getUserMedia`)
-2. กด `Capture + Process`
-3. Frontend ส่ง snapshot (`image_data`) ไป `POST /api/capture_process`
-4. Backend ประมวลผล:
-   - ตรวจ type จาก QR (`sky` / `ground` / `water`)
-   - หา contour ของกระดาษ
-   - ทำ perspective warp
-   - ลบพื้นหลังด้วย RMBG
-   - บันทึกลง `outputs/`
-   - เขียน preview ไป `static/rmbg_temp.png`
-5. Operator ตรวจภาพและกด `Approve & Spawn`
-6. Backend ย้ายไฟล์ไป `static/animations/{type}_{timestamp}.png`
-7. Frontend ฝั่ง Forest poll `GET /api/latest_animals`
-8. แสดง cinematic overlay 3 วินาที
-9. Three.js Spawn สัตว์เข้า scene
-10. Forest รายงานสถานะ entity กลับผ่าน `POST /api/forest_state`
+### Model / Algorithm ที่ใช้
 
-## API Endpoints
+- Background removal model (ใช้งานจริง): `birefnet-general`
+  - เรียกผ่าน `new_session("birefnet-general")`
+- Feature matching: SIFT (`cv2.SIFT_create`) + FLANN (`cv2.FlannBasedMatcher`)
 
-### หน้าและ Health
+### หมายเหตุ
 
-- `GET /` -> ข้อมูล service ในรูปแบบ JSON
-- `GET /health` -> health check
+- ในไฟล์มี comment เก่าที่พูดถึง `u2net` แต่โค้ด runtime ปัจจุบันเรียก `birefnet-general`
 
-### API หลัก
+## "ใครเป็นคนสร้าง Animation ของสัตว์?"
 
-- `GET /api/latest_animals`  
-  ส่งคืนรายการไฟล์ล่าสุดจาก `static/animations`
+### สิ่งที่ backend สร้าง
 
-- `GET /api/pipeline_status`  
-  ส่งคืนสถานะ pipeline, progress, message, detected type, preview URL, active entity count
+- สร้างไฟล์ภาพ PNG โปร่งใสจาก pipeline (`scanner_module.py`)
+- ย้ายไฟล์สุดท้ายไป `static/animations/` ตอน approve (`backend/app.py`)
 
-- `POST /api/capture_process`  
-  เริ่ม process จากภาพ snapshot
-  - Request JSON:
-    - `image_data` (base64 data URL จาก canvas)
+### สิ่งที่ frontend ทำ
 
-- `POST /api/approve`  
-  อนุมัติ preview และย้ายไฟล์ไปโฟลเดอร์ animation
-  - Request JSON:
-    - `type`: `ground` | `sky` | `water`
-    - `name` (optional)
+- โหลด PNG จาก `/static/animations/...`
+- ทำการเคลื่อนไหว (บิน/ว่าย/กระโดด), spawn effect, cinematic overlay ใน runtime
+- โค้ดหลักอยู่ที่:
+  - `frontend/src/lib/forestScene.js`
+  - `frontend/src/components/CinematicSpawnOverlay.jsx`
 
-- `POST /api/clear_forest`  
-  ล้างไฟล์ทั้งหมดใน `static/animations`
+### สรุป
 
-- `POST /api/forest_state`  
-  รับ heartbeat จากหน้า Forest พร้อมรายการไฟล์ที่ render อยู่จริง
-  - Request JSON:
-    - `rendered`: `string[]`
+- `backend/animation_worker.py` (ซึ่งตั้งใจทำ GIF ผ่าน `animated_drawings`) ยังไม่ถูกเรียกใช้ใน flow ปัจจุบัน
 
-- `POST /api/kill`  
-  เคลียร์ active entities ฝั่ง backend (legacy)
+## โครงสร้างที่ควรรู้
 
-## ตรรกะ Active Entities
+- `backend/app.py`:
+  - API ทั้งหมด
+  - queue worker + pipeline state
+  - approve/move file + DB log
+- `backend/scanner_module.py`:
+  - warp/crop/enhance/remove background
+  - template matching + fallback rembg
+- `backend/db.py`:
+  - PostgreSQL pool/query helpers
+- `backend/auth.py`:
+  - JWT + decorators
+- `backend/init.sql`:
+  - schema และ seed ข้อมูลเริ่มต้น
+- `my-app/src/app.vue`:
+  - Vue portal หลัก (register/login/search/download)
+- `frontend/src/lib/forestScene.js`:
+  - Three.js scene + animal motion runtime
 
-ตัวนับ `active_entities` ในหน้า Operator ใช้ข้อมูลจาก:
+## API หลักที่ใช้งานบ่อย
 
-- จำนวนที่ Forest รายงานผ่าน `/api/forest_state` เมื่อ heartbeat ยังใหม่
-- fallback เป็นจำนวนในหน่วยความจำ backend เมื่อ Forest ไม่ออนไลน์
+- `GET /health` - health check
+- `POST /api/capture_process` - ส่งรูปเข้าคิวประมวลผล
+- `GET /api/queue_status/<job_id>` - ดูสถานะงาน
+- `POST /api/approve` - อนุมัติและย้ายไฟล์เข้า `static/animations`
+- `GET /api/latest_animals` - ดึงรายการสัตว์ล่าสุด
+- `GET /api/pipeline_status` - สถานะ pipeline/queue ปัจจุบัน
+- `POST /api/forest_state` - heartbeat จาก forest
+- `POST /api/clear_forest` - ล้างไฟล์สัตว์ทั้งหมด
 
-## รายละเอียด Scanner Module
+## การรันระบบ
 
-`backend/scanner_module.py` มี 2 โหมด:
-
-- Standalone mode (`python backend/scanner_module.py`)
-  - เปิด UI กล้อง
-  - กด `s` เพื่อสแกน/ประมวลผล
-  - กด `q` เพื่อออก
-
-- API mode (เรียกผ่าน Flask)
-  - `process_provided_frame(...)` สำหรับภาพ snapshot จาก browser
-  - `capture_and_process_single_frame(...)` สำหรับ fallback จับภาพจาก webcam โดยตรง
-
-ลำดับการตรวจ type จาก QR:
-
-1. ตรวจตรงจาก `DEFAULT_QR_MAPPING`
-2. fallback ค้น keyword ในข้อความ QR (`sky`, `ground`, `water`)
-3. ถ้าไม่พบ -> `unknown`
-
-## วิธีรัน (Local)
-
-### 1) ติดตั้ง dependency ฝั่ง Backend
-
-```bash
-pip install -r backend/requirements.txt
-```
-
-### 2) ติดตั้ง dependency ฝั่ง Frontend
-
-```bash
-cd frontend
-npm install
-```
-
-### 3) Build Frontend
-
-```bash
-cd frontend
-npm run build
-```
-
-### 4) รัน Backend
-
-```bash
-python -m backend.app
-```
-
-### 5) เปิดใช้งาน
-
-- API: `http://localhost:5000/`
-- Health: `http://localhost:5000/health`
-- Frontend (dev): `http://localhost:5173/operator` และ `http://localhost:5173/forest`
-
-## วิธีรันด้วย Docker Compose (Backend + Frontend)
-
-### Build และเปิด service
+### Docker Compose (แนะนำ)
 
 ```bash
 docker compose up --build -d
-```
-
-### เปิดใช้งาน
-
-- Frontend: `http://localhost:5173/`
-- Backend API: `http://localhost:5000/`
-- Health: `http://localhost:5000/health`
-
-### ดู log
-
-```bash
 docker compose logs -f
-```
-
-### ปิด service
-
-```bash
 docker compose down
 ```
 
-## Frontend Dev Mode (ทางเลือก)
+ค่า default port ใน compose:
 
-รัน Flask API:
+- `myapp`: `http://localhost:3128`
+- `backend`: `http://localhost:809`
+
+### Local Dev (Backend)
 
 ```bash
+pip install -r backend/requirements.txt
 python -m backend.app
 ```
 
-รัน React dev server:
+### Local Dev (Vue my-app)
 
 ```bash
-cd frontend
+cd my-app
+npm ci
 npm run dev
 ```
 
-ถ้าจำเป็น ให้สร้าง `frontend/.env` จาก `frontend/.env.example` และตั้งค่า:
+### Local Dev (React frontend ชุดแยก)
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+`frontend/.env.example`
 
 ```bash
 VITE_API_BASE=http://127.0.0.1:5000
 ```
 
-## Troubleshooting
+## สรุปสถานะไฟล์ที่ "ยังไม่ถูกใช้งาน" (จากการตรวจ reference)
 
-- `Processing failed: Cannot read from webcam`
-  - flow ปัจจุบันพยายามหลีกเลี่ยงการ lock กล้องซ้ำ โดยส่ง snapshot จาก browser ไป backend
-  - ตรวจสิทธิ์กล้องในเบราว์เซอร์
+### ไม่ถูกเรียกจาก flow หลัก
 
-- `No document contour detected`
-  - เพิ่มความต่างสีระหว่างกระดาษกับพื้นหลัง
-  - จัดกระดาษให้เห็นครบขอบชัดเจน
+- `backend/sheets_service.py`
+- `backend/animation_worker.py`
 
-- กด Approve แล้วไม่เห็น Spawn ใน Forest
-  - ตรวจว่าหน้า `/forest` เปิดอยู่
-  - ตรวจว่ามีไฟล์ใน `static/animations`
-  - ตรวจ network/console ของ `/api/latest_animals`
+### ไม่ถูกอ้างอิงใน repo ปัจจุบัน
 
-- Active entities เป็น 0 ตลอด
-  - ตรวจว่า Forest ส่ง heartbeat ผ่าน `/api/forest_state`
-  - ถ้า Forest offline ระบบจะ fallback เป็นค่าฝั่ง backend
+- `ssl/selfsigned.pfx`
+- `my-app/src/assets/vue.svg`
+- `my-app/public/vite.svg`
 
-## หมายเหตุ
+### ไม่ได้ถูกใช้งานใน compose ปัจจุบัน
 
-- แนะนำ Python 3.10 เพื่อความเข้ากันได้ของ animation ecosystem
-- ข้อมูลสัตว์เป็น file-based (`static/animations`) และตัวนับใน memory จะ reset เมื่อ restart backend
-- โครงสร้างถูกแยก Backend/Frontend เพื่อ deploy แยกกันได้
-- `backend/app.py` บังคับ MIME ของไฟล์ `.js/.mjs/.css` เพื่อหลีกเลี่ยงปัญหา module MIME ใน browser
+- ทั้งโฟลเดอร์ `frontend/` (runtime ปัจจุบันใช้ `my-app`)
+- ทั้งโฟลเดอร์ `backend-proxy/`
 
-## Operations
+## หมายเหตุเรื่อง SSL
 
-- เช็กลิสต์ก่อนขึ้น production: `PRODUCTION_CHECKLIST.md`
-- Docker ใช้ 2 container (`backend`, `frontend`) ผ่าน `docker-compose.yml`
-- ถ้าต้องเข้าถึง webcam ตรงจาก host (โดยเฉพาะ Windows) มักรันแบบ local จะง่ายกว่า Docker
+- `frontend/nginx.conf` อ้างอิง `selfsigned.crt` และ `selfsigned.key`
+- `selfsigned.pfx` เป็น PKCS#12 (cert+key รวมไฟล์เดียว) แต่ในระบบนี้ยังไม่ถูกเรียกใช้
+
+## ข้อควรระวัง
+
+- `init-letsencrypt.sh` อ้างถึง `certbot` service แต่ `docker-compose.yml` ปัจจุบันยังไม่มี service นี้
+- ก่อนลบไฟล์ที่ระบุว่า unused ควรเช็กว่าทีมไม่ได้ใช้สคริปต์/manual flow นอก compose
+
+## เอกสารประกอบ
+
+- `PRODUCTION_CHECKLIST.md` - เช็กลิสต์ก่อนขึ้น production
