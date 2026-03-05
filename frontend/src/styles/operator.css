@@ -132,6 +132,16 @@
   background: #5fddba;
 }
 
+.db-btn--amber {
+  background: #f2b84a;
+  color: #1f1400;
+  border-color: transparent;
+}
+
+.db-btn--amber:hover {
+  background: #ffcc64;
+}
+
 .db-btn--danger {
   background: transparent;
   border-color: #e05555;

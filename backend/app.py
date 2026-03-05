@@ -77,6 +77,18 @@ QUEUE_STATUS_ACTIVE = ("QUEUED", "CAPTURING", "PROCESSING", "READY_FOR_REVIEW", 
 queue_wakeup = threading.Event()
 
 
+def safe_int(value: object, default: int, *, minimum: int = 1, maximum: Optional[int] = None) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if parsed < minimum:
+        parsed = minimum
+    if maximum is not None and parsed > maximum:
+        parsed = maximum
+    return parsed
+
+
 def normalize_phone(value: str) -> str:
     return "".join(ch for ch in str(value or "") if ch.isdigit())
 
@@ -117,6 +129,48 @@ def queue_counts_and_position(job_id: Optional[str] = None) -> Tuple[int, Option
         if row.get("job_id") == job_id:
             return total, idx
     return total, None
+
+
+def clear_active_queue_jobs(reason: str, minutes: Optional[int] = None) -> int:
+    """Move active queue jobs to FAILED so the queue can continue."""
+    reason_text = str(reason or "").strip() or "Queue cleared by admin."
+    if minutes is None:
+        rows = db_query(
+            """
+            UPDATE Queue_Job
+            SET Status = 'FAILED',
+                Progress = 0,
+                Message = %s,
+                Error_Message = COALESCE(NULLIF(Error_Message, ''), %s),
+                Done_Timestamp = COALESCE(Done_Timestamp, NOW()),
+                Update_Timestamp = NOW()
+            WHERE Status = ANY(%s)
+            RETURNING Job_ID
+            """,
+            (reason_text, reason_text, list(QUEUE_STATUS_ACTIVE)),
+            fetch="all",
+        ) or []
+    else:
+        safe_minutes = safe_int(minutes, 30, minimum=1, maximum=24 * 60)
+        rows = db_query(
+            """
+            UPDATE Queue_Job
+            SET Status = 'FAILED',
+                Progress = 0,
+                Message = %s,
+                Error_Message = COALESCE(NULLIF(Error_Message, ''), %s),
+                Done_Timestamp = COALESCE(Done_Timestamp, NOW()),
+                Update_Timestamp = NOW()
+            WHERE Status = ANY(%s)
+              AND COALESCE(Update_Timestamp, Create_Timestamp) < (NOW() - (%s * INTERVAL '1 minute'))
+            RETURNING Job_ID
+            """,
+            (reason_text, reason_text, list(QUEUE_STATUS_ACTIVE), safe_minutes),
+            fetch="all",
+        ) or []
+    if rows:
+        queue_wakeup.set()
+    return len(rows)
 
 
 def update_job_row(job_id: str, status: str, progress: int, message: str, **extra) -> None:
@@ -620,6 +674,36 @@ def queue_jobs():
         item["queue_total"] = queue_total
         items.append(item)
     return jsonify({"ok": True, "count": len(items), "items": items})
+
+
+@app.post("/api/queue/clear")
+@require_customer_jwt
+def queue_clear():
+    """
+    Clear active queue jobs by moving them to FAILED.
+    Optional JSON body:
+      - reason: custom admin message
+      - minutes: clear only jobs older than N minutes
+    """
+    data = request.get_json(silent=True) or {}
+    reason = str(data.get("reason", "")).strip() or "Queue cleared by admin."
+    minutes_raw = data.get("minutes")
+    minutes = None
+    if minutes_raw not in (None, "", 0, "0"):
+        minutes = safe_int(minutes_raw, 30, minimum=1, maximum=24 * 60)
+    cleared = clear_active_queue_jobs(reason, minutes=minutes)
+    queue_total, _ = queue_counts_and_position(None)
+    queue_waiting_row = db_query("SELECT COUNT(*) AS cnt FROM Queue_Job WHERE Status = 'QUEUED'", fetch="one")
+    queue_waiting = int(queue_waiting_row["cnt"]) if queue_waiting_row else 0
+    return jsonify(
+        {
+            "ok": True,
+            "cleared": cleared,
+            "minutes": minutes,
+            "queue_total": queue_total,
+            "queue_waiting": queue_waiting,
+        }
+    )
 
 
 # ─── Auth — Customer ────────────────────────────────────────────────────────

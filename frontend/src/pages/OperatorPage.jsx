@@ -280,8 +280,12 @@ export function OperatorPage() {
   // ── Live pipeline refresh every 5 s ──────────────────────────────────────
   useEffect(() => {
     const id = setInterval(async () => {
-      const r = await ForestAPI.getPipelineStatus({ wait: false });
-      if (r.ok) setPipeline(r.data || {});
+      const [pipeRes, queueRes] = await Promise.all([
+        ForestAPI.getPipelineStatus({ wait: false }),
+        apiFetch("/api/queue_jobs?limit=200")
+      ]);
+      if (pipeRes.ok) setPipeline(pipeRes.data || {});
+      if (queueRes.ok && Array.isArray(queueRes.data?.items)) setQueueJobs(queueRes.data.items);
     }, 5000);
     return () => clearInterval(id);
   }, []);
@@ -293,9 +297,9 @@ export function OperatorPage() {
     const d = new Date(p.upload_timestamp);
     return d.toDateString() === new Date().toDateString();
   }).length;
-  const queueTotal = pipeline.queue_total ?? 0;
-  const queueInProgress = queueJobs.filter((j) => ["CAPTURING", "PROCESSING", "READY_FOR_REVIEW", "SYNCING"].includes(j.status)).length;
-  const queueWaiting = queueJobs.filter((j) => j.status === "QUEUED").length;
+  const queueInProgress = queueJobs.filter((j) =>
+    ["CAPTURING", "PROCESSING", "READY_FOR_REVIEW", "SYNCING"].includes(j.status)
+  ).length;
   const custCount = pictures.filter((p) => p.uploader_type === "CUSTOMER").length;
   const userCount = pictures.filter((p) => p.uploader_type === "USER").length;
 
@@ -376,6 +380,22 @@ export function OperatorPage() {
     fetchAll();
   };
 
+  const clearQueueNow = async () => {
+    const ok = window.confirm("Clear all active queue jobs now?");
+    if (!ok) return;
+    const resp = await apiFetch("/api/queue/clear", {
+      method: "POST",
+      body: JSON.stringify({ reason: "Queue cleared by operator." })
+    });
+    if (!resp.ok) {
+      const errMsg = resp.data?.error || `Queue clear failed (HTTP ${resp.status})`;
+      window.alert(errMsg);
+      return;
+    }
+    window.alert("Cleared " + Number(resp.data?.cleared || 0) + " queue job(s).");
+    fetchAll();
+  };
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="db-root">
@@ -392,6 +412,7 @@ export function OperatorPage() {
         <div className="db-header__right">
           <div className="db-header__user">👤 {user?.name || "—"}</div>
           <button className="db-btn db-btn--ghost" onClick={fetchAll}>⟳ Refresh</button>
+          <button className="db-btn db-btn--amber" onClick={clearQueueNow}>Clear Queue</button>
           <a href="/scan" className="db-btn db-btn--cyan">Scanner →</a>
           <a href="/" className="db-btn db-btn--ghost">Home</a>
           <button className="db-btn db-btn--danger" onClick={logout}>ออกจากระบบ</button>
@@ -428,9 +449,7 @@ export function OperatorPage() {
               <StatCard icon="🖼️" value={totalPics} label="Total Pictures" color="cyan" />
               <StatCard icon="📅" value={todayPics} label="Uploaded Today" color="emerald" />
               <StatCard icon="📱" value={uniquePhones} label="Unique Phone Numbers" color="violet" />
-              <StatCard icon="🧾" value={queueTotal} label="Queue Total" color="cyan" />
               <StatCard icon="⚙️" value={queueInProgress} label="Queue In Progress" color="amber" />
-              <StatCard icon="⏳" value={queueWaiting} label="Queue Waiting" color="violet" />
             </div>
 
             {/* Charts */}
@@ -631,4 +650,3 @@ export function OperatorPage() {
     </div>
   );
 }
-
